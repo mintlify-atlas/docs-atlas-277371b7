@@ -1,0 +1,182 @@
+---
+title: Evaluation
+description: Open-loop and closed-loop evaluation of GR00T models
+---
+
+We recommend a two-stage evaluation approach: open-loop evaluation followed by closed-loop evaluation to comprehensively assess model quality.
+
+## Open-loop evaluation
+
+Open-loop evaluation provides an offline assessment by comparing the model's predicted actions against ground truth data from your dataset.
+
+### Running the evaluation
+
+Execute the evaluation script with your trained model:
+
+```bash
+python gr00t/eval/open_loop_eval.py \
+    --dataset-path <DATASET_PATH> \
+    --embodiment-tag NEW_EMBODIMENT \
+    --model-path <CHECKPOINT_PATH> \
+    --traj-ids 0 \
+    --action-horizon 16 \
+    --steps 400 \
+    --modality-keys single_arm gripper
+```
+
+### Parameters
+
+| Parameter | Description |
+|-----------|-------------|
+| `--dataset-path` | Path to your dataset in LeRobot format |
+| `--embodiment-tag` | Embodiment tag for your robot |
+| `--model-path` | Path to the trained model checkpoint |
+| `--traj-ids` | List of trajectory IDs to evaluate |
+| `--action-horizon` | Action horizon (must be within the delta_indices of action's modality config) |
+| `--steps` | Maximum number of steps to evaluate |
+| `--modality-keys` | List of modality keys to plot |
+
+### Interpreting results
+
+The evaluation generates a visualization saved at `/tmp/open_loop_eval/traj_{traj_id}.jpeg`, which includes:
+
+- Ground truth actions vs. predicted actions
+- Unnormalized mean squared error (MSE) metrics
+- Unnormalized mean absolute error (MAE) metrics
+
+These plots provide a quick indicator of the policy's accuracy on the training dataset distribution.
+
+<Tip>
+The evaluation script outputs both MSE and MAE metrics in the console for each trajectory, as well as average metrics across all evaluated trajectories.
+</Tip>
+
+## Closed-loop evaluation
+
+After validating performance through open-loop evaluation, test your model in closed-loop environments.
+
+### Server-client architecture
+
+GR00T uses a server-client architecture for closed-loop evaluation, which allows you to:
+
+- Run policy inference on a GPU server while controlling the robot/simulation from a different machine
+- Avoid dependency conflicts between the policy and environment code
+- Easily switch between different policies without modifying environment code
+
+### Starting the policy server
+
+Launch the server using the `run_gr00t_server.py` script:
+
+```bash
+python gr00t/eval/run_gr00t_server.py \
+    --embodiment-tag NEW_EMBODIMENT \
+    --model-path <CHECKPOINT_PATH> \
+    --device cuda:0 \
+    --host 0.0.0.0 \
+    --port 5555
+```
+
+#### Parameters
+
+| Parameter | Description |
+|-----------|-------------|
+| `--embodiment-tag` | The embodiment tag for your robot |
+| `--model-path` | Path to your trained model checkpoint directory |
+| `--device` | Device to run inference on (`cuda:0`, `cuda:1`, `cpu`, etc.) |
+| `--host` | Host address (`127.0.0.1` for local only, `0.0.0.0` to accept external connections) |
+| `--port` | Port number (default: 5555) |
+| `--strict` | Enable input/output validation (default: True) |
+| `--use-sim-policy-wrapper` | Whether to use `Gr00tSimPolicyWrapper` for GR00T simulation environments |
+
+### Using the policy client
+
+On the client side, use `PolicyClient` to connect to the server:
+
+```python
+from gr00t.policy.server_client import PolicyClient
+
+# Connect to the policy server
+policy = PolicyClient(
+    host="localhost",  # or IP address of your GPU server
+    port=5555,
+    timeout_ms=15000,
+)
+
+# Verify connection
+if not policy.ping():
+    raise RuntimeError("Cannot connect to policy server!")
+
+# Use just like a regular policy
+observation = get_observation()  # Your observation in Policy API format
+action, info = policy.get_action(observation)
+```
+
+### Running simulation evaluation
+
+For simulation environments, use the `rollout_policy.py` script:
+
+```bash
+python gr00t/eval/rollout_policy.py \
+    --n_episodes 50 \
+    --policy_client_host 127.0.0.1 \
+    --policy_client_port 5555 \
+    --max_episode_steps 720 \
+    --env_name libero_sim/LIVING_ROOM_SCENE2_put_soup_in_basket \
+    --n_action_steps 8 \
+    --n_envs 8
+```
+
+#### Parameters
+
+| Parameter | Description |
+|-----------|-------------|
+| `--n_episodes` | Number of episodes to run |
+| `--policy_client_host` | Host address of the policy server |
+| `--policy_client_port` | Port number of the policy server |
+| `--max_episode_steps` | Maximum number of steps per episode |
+| `--env_name` | Name of the gym environment |
+| `--n_action_steps` | Number of action steps to execute per inference |
+| `--n_envs` | Number of parallel environments |
+
+### Debugging with ReplayPolicy
+
+When developing a new environment integration or debugging your inference loop, you can use `ReplayPolicy` to replay recorded actions from an existing dataset:
+
+```bash
+# Start server with ReplayPolicy
+python gr00t/eval/run_gr00t_server.py \
+    --dataset-path <DATASET_PATH> \
+    --embodiment-tag NEW_EMBODIMENT \
+    --execution-horizon 8  # should match the executed action horizon in the environment
+```
+
+<Note>
+ReplayPolicy is an excellent first step when integrating a new environment. Debug with replay first, then switch to model inference once the pipeline is validated.
+</Note>
+
+The server will replay actions from the first episode of the dataset. Use `policy.reset(options={"episode_index": N})` on the client to switch to a different episode.
+
+If your environment is set up correctly, replaying ground-truth actions should achieve high (often 100%) success rates. Low success rates indicate issues with:
+
+- Environment reset state not matching the dataset
+- Observation preprocessing differences
+- Action space mismatches
+
+## Available benchmarks
+
+GR00T supports evaluation on several public benchmarks:
+
+### Zero-shot evaluation
+
+- **RoboCasa**: General manipulation tasks
+- **RoboCasa GR1 Tabletop Tasks**: GR1-specific tabletop manipulation
+
+### Fine-tuned evaluation
+
+- **G1 LocoManipulation**: Whole-body control tasks
+- **LIBERO**: Long-horizon manipulation benchmarks
+- **SimplerEnv**: Google robot and WidowX environments
+- **BEHAVIOR**: Household tasks with the Galaxea R1 Pro
+- **PointNav**: Navigation tasks
+- **SO-100**: Custom robot demonstrations
+
+Refer to the `examples/` directory for detailed setup instructions for each benchmark.

@@ -1,0 +1,258 @@
+---
+title: Evaluation server
+description: Run a GR00T policy as a server for distributed inference and evaluation
+---
+
+The evaluation server script (`gr00t/eval/run_gr00t_server.py`) runs a policy as a network server, allowing multiple clients to send observations and receive actions over TCP.
+
+## Usage
+
+```bash
+python gr00t/eval/run_gr00t_server.py \
+  --model-path checkpoints/checkpoint-5000 \
+  --embodiment-tag GR1 \
+  --device cuda \
+  --host 0.0.0.0 \
+  --port 5555
+```
+
+## Parameters
+
+### Policy configuration
+
+<ParamField path="model-path" type="str" default="None">
+  Path to the model checkpoint directory for GR00T policy inference.
+  
+  Either `model-path` or `dataset-path` must be provided.
+</ParamField>
+
+<ParamField path="embodiment-tag" type="EmbodimentTag" default="NEW_EMBODIMENT">
+  Embodiment tag identifying the robot configuration. See [embodiment tags](/core-concepts/embodiments).
+</ParamField>
+
+<ParamField path="device" type="str" default="cuda">
+  Device to run the model on: `cuda`, `cuda:0`, `cuda:1`, or `cpu`.
+</ParamField>
+
+### Replay policy configuration
+
+<ParamField path="dataset-path" type="str" default="None">
+  Path to a dataset for replay policy (replays recorded trajectories instead of running inference).
+  
+  Use this for debugging or baseline comparisons.
+</ParamField>
+
+<ParamField path="modality-config-path" type="str" default="None">
+  Path to a JSON file containing modality configuration for replay policy.
+  
+  If not provided, uses default configuration from `MODALITY_CONFIGS[embodiment_tag]`.
+</ParamField>
+
+<ParamField path="execution-horizon" type="int" default="None">
+  Policy execution horizon during inference. If specified, overrides the default horizon.
+</ParamField>
+
+### Server configuration
+
+<ParamField path="host" type="str" default="0.0.0.0">
+  Host address for the server. Use `0.0.0.0` to accept connections from any network interface.
+</ParamField>
+
+<ParamField path="port" type="int" default="5555">
+  Port number for the server to listen on.
+</ParamField>
+
+<ParamField path="strict" type="bool" default="True">
+  Whether to enforce strict input and output validation. Recommended to keep enabled for production.
+</ParamField>
+
+<ParamField path="use-sim-policy-wrapper" type="bool" default="False">
+  Whether to wrap the policy with `Gr00tSimPolicyWrapper` for simulation-specific processing.
+  
+  Enable this when serving policies for simulation environments.
+</ParamField>
+
+## Example workflows
+
+### Serve a GR00T policy
+
+```bash
+python gr00t/eval/run_gr00t_server.py \
+  --model-path checkpoints/checkpoint-5000 \
+  --embodiment-tag GR1 \
+  --device cuda:0 \
+  --port 5555
+```
+
+Output:
+```
+Starting GR00T inference server...
+  Embodiment tag: GR1
+  Model path: checkpoints/checkpoint-5000
+  Device: cuda:0
+  Host: 0.0.0.0
+  Port: 5555
+Server running on 0.0.0.0:5555
+```
+
+### Serve for simulation
+
+```bash
+python gr00t/eval/run_gr00t_server.py \
+  --model-path checkpoints/gr1_sim_model \
+  --embodiment-tag GR1 \
+  --use-sim-policy-wrapper \
+  --port 5555
+```
+
+### Serve a replay policy
+
+```bash
+python gr00t/eval/run_gr00t_server.py \
+  --dataset-path datasets/recorded_demos \
+  --embodiment-tag GR1 \
+  --modality-config-path configs/gr1_modalities.json \
+  --execution-horizon 16
+```
+
+### Multi-GPU setup
+
+Run multiple servers on different GPUs:
+
+```bash
+# GPU 0
+python gr00t/eval/run_gr00t_server.py \
+  --model-path checkpoints/checkpoint-5000 \
+  --device cuda:0 \
+  --port 5555
+
+# GPU 1
+python gr00t/eval/run_gr00t_server.py \
+  --model-path checkpoints/checkpoint-5000 \
+  --device cuda:1 \
+  --port 5556
+```
+
+## Client usage
+
+Connect to the server using `PolicyClient`:
+
+```python
+from gr00t.policy.server_client import PolicyClient
+
+# Create client
+policy = PolicyClient(host="127.0.0.1", port=5555)
+
+# Get action
+observation = {
+    "video": {"camera_0": image_array},
+    "state": {"joint_positions": joint_array},
+    "language": {"instruction": [["pick up the cup"]]}
+}
+action, metadata = policy.get_action(observation)
+```
+
+### With open-loop evaluation
+
+```bash
+# Terminal 1: Start server
+python gr00t/eval/run_gr00t_server.py \
+  --model-path checkpoints/checkpoint-5000 \
+  --port 5555
+
+# Terminal 2: Run open-loop eval
+python gr00t/eval/open_loop_eval.py \
+  --host 127.0.0.1 \
+  --port 5555 \
+  --dataset-path demo_data/cube_to_bowl_5/
+```
+
+### With closed-loop evaluation
+
+```bash
+# Terminal 1: Start server
+python gr00t/eval/run_gr00t_server.py \
+  --model-path checkpoints/checkpoint-5000 \
+  --use-sim-policy-wrapper \
+  --port 5555
+
+# Terminal 2: Run closed-loop eval
+python gr00t/eval/rollout_policy.py \
+  --env-name gr1_unified/PnPCanToDrawerClose_GR1ArmsAndWaistFourierHands_Env \
+  --policy-client-host 127.0.0.1 \
+  --policy-client-port 5555 \
+  --n-episodes 50
+```
+
+## Policy types
+
+### Gr00tPolicy
+
+Loaded when `model-path` is provided:
+- Runs transformer-based policy inference
+- Supports all GR00T embodiments
+- GPU-accelerated
+- Configurable via `embodiment-tag` and `device`
+
+### ReplayPolicy
+
+Loaded when `dataset-path` is provided:
+- Replays actions from recorded demonstrations
+- Useful for testing data collection pipelines
+- Configurable via `modality-config-path` and `execution-horizon`
+
+## Server protocol
+
+The server implements a simple request-response protocol:
+
+1. Client sends observation dictionary
+2. Server runs policy inference
+3. Server returns action dictionary and metadata
+
+The `PolicyServer` class handles:
+- TCP socket management
+- Request serialization/deserialization
+- Multi-client support (sequential processing)
+- Graceful shutdown on KeyboardInterrupt
+
+## Performance considerations
+
+- **Single client per server**: The server processes requests sequentially. For parallel inference, run multiple servers on different ports/GPUs.
+- **Batch size**: Each request processes a single observation. For higher throughput, use local policy inference instead.
+- **Network latency**: Server adds network overhead. For real-time applications, consider deploying on the same machine as the client.
+
+<Warning>
+  The server does NOT authenticate clients. Only run on trusted networks or add authentication if deploying in production.
+</Warning>
+
+## Troubleshooting
+
+### Port already in use
+
+```bash
+Address already in use: 0.0.0.0:5555
+```
+
+Change the port:
+```bash
+python gr00t/eval/run_gr00t_server.py --port 5556
+```
+
+### Model path not found
+
+```bash
+FileNotFoundError: Model path checkpoints/checkpoint-5000 does not exist
+```
+
+Verify the checkpoint directory exists and contains model files.
+
+### CUDA out of memory
+
+```bash
+RuntimeError: CUDA out of memory
+```
+
+Reduce batch size, use a smaller model, or switch to CPU:
+```bash
+python gr00t/eval/run_gr00t_server.py --device cpu
+```

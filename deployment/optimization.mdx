@@ -1,0 +1,306 @@
+---
+title: Optimization techniques
+description: Optimize GR00T inference performance with torch.compile and TensorRT acceleration
+---
+
+GR00T supports multiple optimization techniques to improve inference speed, from PyTorch eager mode to torch.compile and TensorRT acceleration.
+
+## Performance overview
+
+GR00T-N1.6-3B inference timing with 4 denoising steps:
+
+| Device | Mode | Data Processing | Backbone | Action Head | E2E | Frequency |
+|--------|------|-----------------|----------|-------------|-----|-----------||
+| RTX 5090 | PyTorch Eager | 2 ms | 18 ms | 38 ms | 58 ms | 17.3 Hz |
+| RTX 5090 | torch.compile | 2 ms | 18 ms | 16 ms | 37 ms | 27.3 Hz |
+| RTX 5090 | TensorRT | 2 ms | 18 ms | 11 ms | 31 ms | 32.1 Hz |
+| H100 | PyTorch Eager | 4 ms | 23 ms | 49 ms | 77 ms | 13.0 Hz |
+| H100 | torch.compile | 4 ms | 23 ms | 11 ms | 38 ms | 26.3 Hz |
+| H100 | TensorRT | 4 ms | 22 ms | 10 ms | 36 ms | 27.9 Hz |
+| RTX 4090 | PyTorch Eager | 2 ms | 25 ms | 55 ms | 82 ms | 12.2 Hz |
+| RTX 4090 | torch.compile | 2 ms | 25 ms | 17 ms | 44 ms | 22.8 Hz |
+| RTX 4090 | TensorRT | 2 ms | 24 ms | 16 ms | 43 ms | 23.3 Hz |
+| Thor | PyTorch Eager | 5 ms | 38 ms | 74 ms | 117 ms | 8.6 Hz |
+| Thor | torch.compile | 5 ms | 39 ms | 61 ms | 105 ms | 9.5 Hz |
+| Thor | TensorRT | 5 ms | 38 ms | 49 ms | 92 ms | 10.9 Hz |
+| Orin | PyTorch Eager | 6 ms | 93 ms | 202 ms | 300 ms | 3.3 Hz |
+| Orin | torch.compile | 6 ms | 93 ms | 101 ms | 199 ms | 5.0 Hz |
+| Orin | TensorRT | 6 ms | 95 ms | 72 ms | 173 ms | 5.8 Hz |
+
+<Note>
+The backbone (Vision Encoder + Language Model) timing is the same across all modes. Only the **Action Head (DiT)** is optimized with torch.compile or TensorRT, which is why you see significant speedups in the Action Head column while the Backbone column remains constant.
+</Note>
+
+## Speedup comparison
+
+Speedup vs PyTorch Eager mode:
+
+| Device | Mode | E2E Speedup | Action Head Speedup |
+|--------|------|-------------|---------------------|
+| RTX 5090 | PyTorch Eager | 1.00x | 1.00x |
+| RTX 5090 | torch.compile | 1.58x | 2.32x |
+| RTX 5090 | TensorRT | 1.86x | 3.59x |
+| H100 | PyTorch Eager | 1.00x | 1.00x |
+| H100 | torch.compile | 2.02x | 4.60x |
+| H100 | TensorRT | 2.14x | 4.80x |
+| RTX 4090 | PyTorch Eager | 1.00x | 1.00x |
+| RTX 4090 | torch.compile | 1.87x | 3.26x |
+| RTX 4090 | TensorRT | 1.92x | 3.48x |
+| Thor | PyTorch Eager | 1.00x | 1.00x |
+| Thor | torch.compile | 1.11x | 1.20x |
+| Thor | TensorRT | 1.27x | 1.49x |
+| Orin | PyTorch Eager | 1.00x | 1.00x |
+| Orin | torch.compile | 1.50x | 2.00x |
+| Orin | TensorRT | 1.73x | 2.80x |
+
+## PyTorch mode (default)
+
+Run inference without optimization:
+
+```bash
+python scripts/deployment/standalone_inference_script.py \
+  --model-path nvidia/GR00T-N1.6-3B \
+  --dataset-path demo_data/gr1.PickNPlace \
+  --embodiment-tag GR1 \
+  --traj-ids 0 1 2 \
+  --inference-mode pytorch \
+  --action-horizon 8
+```
+
+### Installation
+
+```bash
+uv sync
+```
+
+No additional dependencies required.
+
+## torch.compile optimization
+
+PyTorch's built-in compiler optimizes the action head (DiT) for faster inference:
+
+```python
+import torch
+from gr00t.policy.gr00t_policy import Gr00tPolicy
+
+policy = Gr00tPolicy(
+    embodiment_tag="GR1",
+    model_path="nvidia/GR00T-N1.6-3B",
+    device="cuda"
+)
+
+# Compile the action head
+policy.model.action_head = torch.compile(policy.model.action_head)
+```
+
+<Note>
+The first inference call will be slower due to compilation. Subsequent calls will benefit from optimized kernels.
+</Note>
+
+### Performance characteristics
+
+- **RTX 5090**: 1.58x faster E2E, 2.32x faster action head
+- **H100**: 2.02x faster E2E, 4.60x faster action head  
+- **RTX 4090**: 1.87x faster E2E, 3.26x faster action head
+- **Orin**: 1.50x faster E2E, 2.00x faster action head
+
+## TensorRT optimization
+
+TensorRT provides the fastest inference by optimizing and compiling the action head to GPU-specific kernels. See the [TensorRT guide](tensorrt) for detailed setup.
+
+### Quick setup
+
+<Steps>
+
+### Install TensorRT dependencies
+
+```bash
+uv sync --extra tensorrt
+```
+
+### Export to ONNX
+
+```bash
+python scripts/deployment/export_onnx_n1d6.py \
+  --model-path nvidia/GR00T-N1.6-3B \
+  --dataset-path demo_data/gr1.PickNPlace \
+  --embodiment-tag GR1 \
+  --output-dir ./groot_n1d6_onnx
+```
+
+### Build TensorRT engine
+
+```bash
+python scripts/deployment/build_tensorrt_engine.py \
+  --onnx ./groot_n1d6_onnx/dit_model.onnx \
+  --engine ./groot_n1d6_onnx/dit_model_bf16.trt \
+  --precision bf16
+```
+
+### Run with TensorRT
+
+```bash
+python scripts/deployment/standalone_inference_script.py \
+  --model-path nvidia/GR00T-N1.6-3B \
+  --dataset-path demo_data/gr1.PickNPlace \
+  --embodiment-tag GR1 \
+  --traj-ids 0 1 2 \
+  --inference-mode tensorrt \
+  --trt-engine-path ./groot_n1d6_onnx/dit_model_bf16.trt \
+  --action-horizon 8
+```
+
+</Steps>
+
+### Performance characteristics
+
+- **RTX 5090**: 1.86x faster E2E, 3.59x faster action head (31ms E2E, 32.1 Hz)
+- **H100**: 2.14x faster E2E, 4.80x faster action head (36ms E2E, 27.9 Hz)
+- **RTX 4090**: 1.92x faster E2E, 3.48x faster action head
+- **Orin**: 1.73x faster E2E, 2.80x faster action head
+
+<Warning>
+TensorRT engines are GPU-specific. Rebuild the engine when moving to different GPU architectures.
+</Warning>
+
+## Benchmarking your hardware
+
+Run the benchmark script to measure performance on your hardware:
+
+```bash
+python scripts/deployment/benchmark_inference.py \
+  --model-path nvidia/GR00T-N1.6-3B \
+  --dataset-path demo_data/gr1.PickNPlace \
+  --embodiment-tag GR1 \
+  --num-iterations 20 \
+  --warmup 5 \
+  --seed 42
+```
+
+### Benchmark arguments
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--model-path` | `nvidia/GR00T-N1.6-3B` | Model checkpoint path |
+| `--dataset-path` | `demo_data/gr1.PickNPlace` | Dataset path |
+| `--embodiment-tag` | `GR1` | Embodiment tag |
+| `--trt-engine-path` | (optional) | TensorRT engine path |
+| `--num-iterations` | `20` | Number of benchmark iterations |
+| `--warmup` | `5` | Warmup iterations |
+| `--skip-compile` | `false` | Skip torch.compile benchmark |
+| `--seed` | `42` | Random seed |
+
+### Output example
+
+```
+=== Benchmark Results ===
+Device: RTX 5090
+Mode: TensorRT
+
+Component Timing:
+  Data Processing: 2.1 ms ± 0.3 ms
+  Backbone: 18.4 ms ± 0.5 ms  
+  Action Head: 11.2 ms ± 0.4 ms
+  E2E: 31.7 ms ± 0.8 ms
+
+Frequency: 31.5 Hz
+Speedup vs Eager: 1.83x
+```
+
+## Architecture
+
+GR00T's inference pipeline consists of three main components:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    GR00T Policy                             │
+│  ┌───────────────┐  ┌───────────────┐  ┌─────────────────┐  │
+│  │ Vision Encoder│  │Language Model │  │  Action Head    │  │
+│  │(Cosmos-Reason)│──│(Cosmos-Reason)│──│    (DiT)        │  │
+│  └───────────────┘  └───────────────┘  └─────────────────┘  │
+│                                              ▲              │
+│                                              │              │
+│                                    ┌─────────┴─────────┐    │
+│                                    │ TensorRT Engine   │    │
+│                                    │ (dit_model.trt)   │    │
+│                                    └───────────────────┘    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+Only the **DiT (Diffusion Transformer)** action head is optimized with TensorRT, as it's the main computational bottleneck.
+
+## Optimization selection guide
+
+| Use Case | Recommended Mode | Rationale |
+|----------|------------------|--------|
+| Development/debugging | PyTorch Eager | Easy debugging, no compilation overhead |
+| Production (simple setup) | torch.compile | Good speedup, minimal setup |
+| Production (maximum performance) | TensorRT | Best performance, requires engine build |
+| Edge devices (Jetson) | TensorRT | Optimized for embedded GPUs |
+| Rapid prototyping | PyTorch Eager | Fast iteration |
+
+## Command-line arguments
+
+### `standalone_inference_script.py`
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--model-path` | (required) | Model checkpoint path |
+| `--dataset-path` | (required) | LeRobot dataset path |
+| `--embodiment-tag` | `GR1` | Embodiment tag |
+| `--traj-ids` | `[0]` | Trajectory IDs to evaluate |
+| `--steps` | `200` | Max steps per trajectory |
+| `--action-horizon` | `16` | Action horizon |
+| `--inference-mode` | `pytorch` | `pytorch` or `tensorrt` |
+| `--trt-engine-path` | `./groot_n1d6_onnx/dit_model_bf16.trt` | TensorRT engine path |
+| `--denoising-steps` | `4` | Denoising steps |
+| `--skip-timing-steps` | `1` | Steps to skip for timing (warmup) |
+| `--seed` | `42` | Random seed |
+| `--video-backend` | `torchcodec` | Video backend |
+
+## Troubleshooting
+
+### Compilation errors with torch.compile
+
+```python
+# Disable dynamo errors for debugging
+import torch._dynamo
+torch._dynamo.config.suppress_errors = True
+```
+
+### Out of memory errors
+
+Reduce batch size or action horizon:
+
+```bash
+python scripts/deployment/standalone_inference_script.py \
+  --action-horizon 4  # Reduce from default 16
+```
+
+### Slow first inference
+
+This is expected with torch.compile and TensorRT. Add warmup iterations:
+
+```python
+# Warmup
+for _ in range(5):
+    policy.get_action(observation)
+
+# Actual inference
+action, info = policy.get_action(observation)
+```
+
+## Advanced topics
+
+### Analyzing inference timing
+
+Use the provided Jupyter notebook for detailed analysis:
+
+```bash
+jupyter notebook scripts/deployment/GR00T_inference_timing.ipynb
+```
+
+This notebook includes:
+- Component-wise timing breakdown
+- Visualization of speedups across devices
+- Comparison of different optimization modes

@@ -1,0 +1,377 @@
+---
+title: PolicyClient and PolicyServer
+description: Server-client architecture for distributed GR00T policy inference
+---
+
+## Overview
+
+The server-client architecture enables distributed inference where the GR00T model runs on a GPU server and clients connect remotely to query actions. This is useful for:
+
+- Running inference on a remote GPU while controlling robots locally
+- Sharing a single model across multiple robot instances
+- Separating model execution from environment simulation
+
+## PolicyServer
+
+### Class definition
+
+```python gr00t/policy/server_client.py
+class PolicyServer:
+    """An inference server that spins up a ZeroMQ socket and listens for incoming requests.
+    
+    Can add custom endpoints by calling `register_endpoint`.
+    """
+```
+
+### Constructor
+
+<ParamField path="policy" type="BasePolicy" required>
+  The policy instance to serve (e.g., `Gr00tPolicy` or `Gr00tSimPolicyWrapper`)
+</ParamField>
+
+<ParamField path="host" type="str" default="*">
+  Host address to bind to. Use `"*"` to listen on all interfaces, or `"localhost"` for local-only access
+</ParamField>
+
+<ParamField path="port" type="int" default="5555">
+  Port number to listen on
+</ParamField>
+
+<ParamField path="api_token" type="str | None" default="None">
+  Optional API token for authentication (currently not enforced)
+</ParamField>
+
+### Methods
+
+#### register_endpoint
+
+Register a custom endpoint to the server.
+
+```python
+def register_endpoint(
+    self, 
+    name: str, 
+    handler: Callable, 
+    requires_input: bool = True
+) -> None
+```
+
+<ParamField path="name" type="str" required>
+  The name of the endpoint (e.g., `"get_action"`, `"reset"`)
+</ParamField>
+
+<ParamField path="handler" type="Callable" required>
+  The handler function that will be called when the endpoint is hit
+</ParamField>
+
+<ParamField path="requires_input" type="bool" default="True">
+  Whether the handler requires input data
+</ParamField>
+
+#### run
+
+Start the server and listen for requests.
+
+```python
+def run(self) -> None
+```
+
+<Note>
+  This method runs an infinite loop until the server is killed via the `"kill"` endpoint.
+</Note>
+
+### Default endpoints
+
+The server automatically registers these endpoints:
+
+<ResponseField name="ping" type="GET">
+  Health check endpoint that returns `{"status": "ok", "message": "Server is running"}`
+</ResponseField>
+
+<ResponseField name="kill" type="POST">
+  Gracefully shutdown the server
+</ResponseField>
+
+<ResponseField name="get_action" type="POST">
+  Generate actions from observations. Calls `policy.get_action(observation, options)`
+</ResponseField>
+
+<ResponseField name="reset" type="POST">
+  Reset the policy state. Calls `policy.reset(options)`
+</ResponseField>
+
+<ResponseField name="get_modality_config" type="GET">
+  Get modality configurations. Calls `policy.get_modality_config()`
+</ResponseField>
+
+### Usage example
+
+```python
+from gr00t.policy.gr00t_policy import Gr00tPolicy
+from gr00t.policy.server_client import PolicyServer
+from gr00t.data.embodiment_tags import EmbodimentTag
+
+# Initialize policy
+policy = Gr00tPolicy(
+    embodiment_tag=EmbodimentTag.GR1,
+    model_path="nvidia/GR00T-N1.6-3B",
+    device="cuda:0"
+)
+
+# Create and run server
+server = PolicyServer(
+    policy=policy,
+    host="0.0.0.0",  # Listen on all interfaces
+    port=5555
+)
+
+print("Starting policy server on port 5555...")
+server.run()
+```
+
+Or use the provided script:
+
+```bash
+uv run python gr00t/eval/run_gr00t_server.py \
+    --embodiment-tag GR1 \
+    --model-path nvidia/GR00T-N1.6-3B \
+    --device cuda:0 \
+    --host 0.0.0.0 \
+    --port 5555
+```
+
+## PolicyClient
+
+### Class definition
+
+```python gr00t/policy/server_client.py
+class PolicyClient(BasePolicy):
+    """Client for connecting to a PolicyServer.
+    
+    Implements the same BasePolicy interface but forwards requests to a remote server.
+    """
+```
+
+### Constructor
+
+<ParamField path="host" type="str" default="localhost">
+  Hostname or IP address of the policy server
+</ParamField>
+
+<ParamField path="port" type="int" default="5555">
+  Port number of the policy server
+</ParamField>
+
+<ParamField path="api_token" type="str | None" default="None">
+  Optional API token for authentication
+</ParamField>
+
+<ParamField path="strict" type="bool" default="True">
+  Whether to enforce strict validation (passed to the remote policy)
+</ParamField>
+
+### Methods
+
+#### ping
+
+Check if the server is reachable.
+
+```python
+def ping(self) -> bool
+```
+
+<ResponseField name="is_alive" type="bool">
+  `True` if the server responds to ping, `False` otherwise
+</ResponseField>
+
+#### get_action
+
+Generate actions from observations via the remote server.
+
+```python
+def get_action(
+    self, 
+    observation: dict[str, Any], 
+    options: dict[str, Any] | None = None
+) -> tuple[dict[str, Any], dict[str, Any]]
+```
+
+<ParamField path="observation" type="dict[str, Any]" required>
+  Observation dictionary (format depends on the server's policy type)
+</ParamField>
+
+<ParamField path="options" type="dict[str, Any] | None">
+  Optional parameters
+</ParamField>
+
+<ResponseField name="actions" type="dict[str, np.ndarray]">
+  Dictionary of action arrays
+</ResponseField>
+
+<ResponseField name="info" type="dict[str, Any]">
+  Additional information
+</ResponseField>
+
+#### reset
+
+Reset the remote policy.
+
+```python
+def reset(self, options: dict[str, Any] | None = None) -> dict[str, Any]
+```
+
+<ParamField path="options" type="dict[str, Any] | None">
+  Optional reset parameters (e.g., `{"episode_index": 5}` for ReplayPolicy)
+</ParamField>
+
+<ResponseField name="info" type="dict[str, Any]">
+  Information dictionary
+</ResponseField>
+
+#### get_modality_config
+
+Get modality configurations from the remote server.
+
+```python
+def get_modality_config(self) -> dict[str, ModalityConfig]
+```
+
+<ResponseField name="modality_configs" type="dict[str, ModalityConfig]">
+  Modality configurations
+</ResponseField>
+
+#### send_request
+
+Send a custom request to the server.
+
+```python
+def send_request(self, endpoint: str, data: Any = None) -> Any
+```
+
+<ParamField path="endpoint" type="str" required>
+  The endpoint name (e.g., `"get_action"`, `"ping"`)
+</ParamField>
+
+<ParamField path="data" type="Any">
+  Data to send with the request
+</ParamField>
+
+<ResponseField name="response" type="Any">
+  Response from the server
+</ResponseField>
+
+### Usage example
+
+```python
+from gr00t.policy.server_client import PolicyClient
+import numpy as np
+
+# Connect to remote policy server
+policy = PolicyClient(host="10.0.0.5", port=5555)
+
+# Verify connection
+if not policy.ping():
+    raise RuntimeError("Cannot connect to policy server!")
+
+# Get modality configuration
+modality_configs = policy.get_modality_config()
+print(f"Video modalities: {modality_configs['video'].modality_keys}")
+
+# Prepare observation
+observation = {
+    "video": {
+        "head_camera": np.zeros((1, 1, 224, 224, 3), dtype=np.uint8),
+    },
+    "state": {
+        "joint_positions": np.zeros((1, 1, 14), dtype=np.float32),
+    },
+    "language": {
+        "task": [["pick up the apple"]]
+    }
+}
+
+# Generate action via network
+action, info = policy.get_action(observation)
+print(f"Received action with shape: {action['joint_positions'].shape}")
+```
+
+## MsgSerializer
+
+Internal serialization class for encoding/decoding messages over the network.
+
+```python gr00t/policy/server_client.py
+class MsgSerializer:
+    """Handles serialization of numpy arrays and ModalityConfig objects using msgpack."""
+    
+    @staticmethod
+    def to_bytes(data: Any) -> bytes:
+        """Serialize data to bytes."""
+        
+    @staticmethod
+    def from_bytes(data: bytes) -> Any:
+        """Deserialize bytes to data."""
+```
+
+<Note>
+  The serializer automatically handles numpy arrays and `ModalityConfig` objects. Custom classes can be supported by extending `encode_custom_classes` and `decode_custom_classes`.
+</Note>
+
+## Network protocol
+
+The server uses ZeroMQ (REP socket) with msgpack serialization:
+
+1. Client sends request: `{"endpoint": "get_action", "data": {...}}`
+2. Server processes request and calls the appropriate handler
+3. Server sends response: `{"status": "success", "data": {...}}` or `{"status": "error", "error": "..."}`
+4. Client receives and deserializes response
+
+## Error handling
+
+Server-side errors are caught and returned to the client:
+
+```python
+# Server catches exceptions and returns error response
+try:
+    result = handler(data)
+    response = {"status": "success", "data": result}
+except Exception as e:
+    response = {"status": "error", "error": str(e)}
+```
+
+Client-side:
+
+```python
+response = policy.send_request("get_action", observation)
+if response["status"] == "error":
+    raise RuntimeError(f"Server error: {response['error']}")
+```
+
+## Performance considerations
+
+<Warning>
+  **Network latency**: Each `get_action` call requires a round-trip to the server. For high-frequency control, consider:
+  - Running the server on the same local network
+  - Using action chunking to reduce query frequency
+  - Batching multiple queries if your environment supports it
+</Warning>
+
+<Tip>
+  **Multi-GPU serving**: You can run multiple policy servers on different GPUs and load-balance clients across them for higher throughput.
+</Tip>
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="Server-client guide" icon="book" href="/deployment/server-client">
+    Complete deployment guide
+  </Card>
+  <Card title="run_gr00t_server.py" icon="server" href="/api/eval/server">
+    Server launch script reference
+  </Card>
+  <Card title="Gr00tPolicy" icon="brain" href="/api/policy/gr00t-policy">
+    Core policy class
+  </Card>
+  <Card title="Policy API guide" icon="book" href="/guides/policy-api">
+    Using the policy API
+  </Card>
+</CardGroup>

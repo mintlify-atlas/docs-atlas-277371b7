@@ -1,0 +1,199 @@
+---
+title: Inference
+description: Running inference with GR00T models
+---
+
+This guide covers running inference with PyTorch or TensorRT acceleration for the GR00T policy.
+
+## Prerequisites
+
+- Model checkpoint (e.g., `nvidia/GR00T-N1.6-3B`)
+- Dataset in LeRobot format
+- CUDA-enabled GPU
+
+### Installation
+
+<CodeGroup>
+
+```bash PyTorch mode
+uv sync
+```
+
+```bash TensorRT mode
+uv sync --extra tensorrt
+```
+
+</CodeGroup>
+
+## Quick start: PyTorch mode
+
+```bash
+python scripts/deployment/standalone_inference_script.py \
+  --model-path nvidia/GR00T-N1.6-3B \
+  --dataset-path /path/to/dataset \
+  --embodiment-tag GR1 \
+  --traj-ids 0 1 2 \
+  --inference-mode pytorch \
+  --action-horizon 8
+```
+
+## TensorRT mode (2x faster)
+
+TensorRT provides approximately 2x speedup for the action head (DiT) component.
+
+<Steps>
+
+### Export to ONNX
+
+```bash
+python scripts/deployment/export_onnx_n1d6.py \
+  --model-path nvidia/GR00T-N1.6-3B \
+  --dataset-path /path/to/dataset \
+  --embodiment-tag GR1 \
+  --output-dir ./groot_n1d6_onnx
+```
+
+Output: `./groot_n1d6_onnx/dit_model.onnx`
+
+### Build TensorRT engine
+
+```bash
+python scripts/deployment/build_tensorrt_engine.py \
+  --onnx ./groot_n1d6_onnx/dit_model.onnx \
+  --engine ./groot_n1d6_onnx/dit_model_bf16.trt \
+  --precision bf16
+```
+
+Output: `./groot_n1d6_onnx/dit_model_bf16.trt`
+
+<Note>
+Engine build takes approximately 5-10 minutes depending on GPU. The engine is GPU-specific and needs to be rebuilt for different GPU architectures.
+</Note>
+
+### Run with TensorRT
+
+```bash
+python scripts/deployment/standalone_inference_script.py \
+  --model-path nvidia/GR00T-N1.6-3B \
+  --dataset-path /path/to/dataset \
+  --embodiment-tag GR1 \
+  --traj-ids 0 1 2 \
+  --inference-mode tensorrt \
+  --trt-engine-path ./groot_n1d6_onnx/dit_model_bf16.trt \
+  --action-horizon 8
+```
+
+</Steps>
+
+## Command-line arguments
+
+### standalone_inference_script.py
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--model-path` | (required) | Path to model checkpoint |
+| `--dataset-path` | (required) | Path to LeRobot dataset |
+| `--embodiment-tag` | `GR1` | Embodiment tag |
+| `--traj-ids` | `[0]` | List of trajectory IDs to evaluate |
+| `--steps` | `200` | Max steps per trajectory |
+| `--action-horizon` | `16` | Action horizon for inference |
+| `--inference-mode` | `pytorch` | `pytorch` or `tensorrt` |
+| `--trt-engine-path` | `./groot_n1d6_onnx/dit_model_bf16.trt` | TensorRT engine path |
+| `--denoising-steps` | `4` | Number of denoising steps |
+| `--skip-timing-steps` | `1` | Steps to skip for timing (warmup) |
+| `--seed` | `42` | Random seed for reproducibility |
+| `--video-backend` | `torchcodec` | Video backend (`decord`, `torchvision_av`, `torchcodec`) |
+
+### export_onnx_n1d6.py
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--model-path` | (required) | Path to model checkpoint |
+| `--dataset-path` | (required) | Path to dataset (for input shape capture) |
+| `--embodiment-tag` | `GR1` | Embodiment tag |
+| `--output-dir` | `./groot_n1d6_onnx` | Output directory for ONNX model |
+| `--video-backend` | `torchcodec` | Video backend |
+
+### build_tensorrt_engine.py
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--onnx` | (required) | Path to ONNX model |
+| `--engine` | (required) | Path to save TensorRT engine |
+| `--precision` | `bf16` | Precision (`fp32`, `fp16`, `bf16`, `fp8`) |
+| `--workspace` | `8192` | Workspace size in MB |
+
+## Benchmarks
+
+GR00T-N1.6-3B inference timing with 4 denoising steps:
+
+<Note>
+The backbone (Vision Encoder + Language Model) timing is the same across all modes. Only the Action Head (DiT) is optimized with torch.compile or TensorRT.
+</Note>
+
+### Component-wise breakdown
+
+| Device | Mode | Data Processing | Backbone | Action Head | E2E | Frequency |
+|--------|------|-----------------|----------|-------------|-----|-----------||
+| RTX 5090 | PyTorch Eager | 2 ms | 18 ms | 38 ms | 58 ms | 17.3 Hz |
+| RTX 5090 | torch.compile | 2 ms | 18 ms | 16 ms | 37 ms | 27.3 Hz |
+| RTX 5090 | TensorRT | 2 ms | 18 ms | 11 ms | 31 ms | 32.1 Hz |
+| H100 | PyTorch Eager | 4 ms | 23 ms | 49 ms | 77 ms | 13.0 Hz |
+| H100 | torch.compile | 4 ms | 23 ms | 11 ms | 38 ms | 26.3 Hz |
+| H100 | TensorRT | 4 ms | 22 ms | 10 ms | 36 ms | 27.9 Hz |
+| RTX 4090 | PyTorch Eager | 2 ms | 25 ms | 55 ms | 82 ms | 12.2 Hz |
+| RTX 4090 | torch.compile | 2 ms | 25 ms | 17 ms | 44 ms | 22.8 Hz |
+| RTX 4090 | TensorRT | 2 ms | 24 ms | 16 ms | 43 ms | 23.3 Hz |
+| Orin | PyTorch Eager | 6 ms | 93 ms | 202 ms | 300 ms | 3.3 Hz |
+| Orin | torch.compile | 6 ms | 93 ms | 101 ms | 199 ms | 5.0 Hz |
+| Orin | TensorRT | 6 ms | 95 ms | 72 ms | 173 ms | 5.8 Hz |
+
+### Speedup vs PyTorch Eager
+
+| Device | Mode | E2E Speedup | Action Head Speedup |
+|--------|------|-------------|---------------------|
+| RTX 5090 | torch.compile | 1.58x | 2.32x |
+| RTX 5090 | TensorRT | 1.86x | 3.59x |
+| H100 | torch.compile | 2.02x | 4.60x |
+| H100 | TensorRT | 2.14x | 4.80x |
+| RTX 4090 | torch.compile | 1.87x | 3.26x |
+| RTX 4090 | TensorRT | 1.92x | 3.48x |
+| Orin | torch.compile | 1.50x | 2.00x |
+| Orin | TensorRT | 1.73x | 2.80x |
+
+<Tip>
+Run `python scripts/deployment/benchmark_inference.py` to generate benchmarks for your hardware.
+</Tip>
+
+## Architecture
+
+The TensorRT optimization targets the DiT (Diffusion Transformer) component of the action head, which is the main computational bottleneck during inference.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    GR00T Policy                             │
+│  ┌───────────────┐  ┌───────────────┐  ┌─────────────────┐  │
+│  │ Vision Encoder│  │Language Model │  │  Action Head    │  │
+│  │(Cosmos-Reason)│──│(Cosmos-Reason)│──│    (DiT)        │  │
+│  └───────────────┘  └───────────────┘  └─────────────────┘  │
+│                                              ▲              │
+│                                              │              │
+│                                    ┌─────────┴─────────┐    │
+│                                    │ TensorRT Engine   │    │
+│                                    │ (dit_model.trt)   │    │
+│                                    └───────────────────┘    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Troubleshooting
+
+### Engine build fails
+
+- Ensure you have enough GPU memory (8GB+ recommended)
+- Try reducing workspace size: `--workspace 4096`
+- Ensure TensorRT version matches your CUDA version
+
+### ONNX export issues
+
+- If export fails, ensure the model loads correctly in PyTorch first
+- Check that the dataset path is valid and contains at least one trajectory

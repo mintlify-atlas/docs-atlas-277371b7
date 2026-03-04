@@ -1,0 +1,127 @@
+---
+title: Unitree G1 locomanipulation
+description: Whole-body control tasks for Unitree G1 humanoid robot
+---
+
+This benchmark tests loco-manipulation capabilities on the Unitree G1 humanoid robot using whole-body control in MuJoCo. Tasks require navigation, object manipulation, and maintaining balance across the entire body.
+
+## Benchmark results
+
+Checkpoint: [nvidia/GR00T-N1.6-G1-PnPAppleToPlate](https://huggingface.co/nvidia/GR00T-N1.6-G1-PnPAppleToPlate)
+
+| Task | Success rate |
+|------|-------------|
+| PnPAppleToPlate | 58% |
+
+<Warning>
+This task exhibits high evaluation variance. Fluctuations of ±15% are expected across different evaluation runs.
+</Warning>
+
+## Fine-tuning
+
+You can skip this section and directly evaluate with the provided checkpoint above.
+
+<Steps>
+  <Step title="Clone dataset repository">
+    Clone without downloading all files:
+    ```bash
+    cd examples/GR00T-WholeBodyControl
+    
+    git clone --filter=blob:none --no-checkout \
+        https://huggingface.co/datasets/nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim
+    
+    cd PhysicalAI-Robotics-GR00T-X-Embodiment-Sim
+    ```
+  </Step>
+  
+  <Step title="Setup sparse checkout">
+    Download only the G1 dataset:
+    ```bash
+    # Initialize sparse-checkout
+    git sparse-checkout init --cone
+    
+    # Select folder to download
+    git sparse-checkout set unitree_g1.LMPnPAppleToPlateDC
+    
+    # Checkout files
+    git checkout
+    
+    # Pull LFS files
+    git lfs pull
+    ```
+  </Step>
+  
+  <Step title="Run fine-tuning">
+    ```bash
+    cd ../../../
+    uv run bash examples/GR00T-WholeBodyControl/finetune_g1.sh
+    ```
+  </Step>
+</Steps>
+
+## Evaluation
+
+### Setup environment
+
+Install the required dependencies (only needs to be done once):
+
+```bash
+apt-get update
+apt-get install libegl1-mesa-dev libglu1-mesa
+bash gr00t/eval/sim/GR00T-WholeBodyControl/setup_GR00T_WholeBodyControl.sh
+```
+
+### Run evaluation
+
+<Steps>
+  <Step title="Start policy server">
+    In Terminal 1, choose one of the following options:
+    
+    **Option 1: Local fine-tuned checkpoint**
+    ```bash
+    uv run python gr00t/eval/run_gr00t_server.py \
+        --model-path /tmp/g1_finetune/checkpoint-10000/ \
+        --embodiment-tag UNITREE_G1 \
+        --use-sim-policy-wrapper
+    ```
+    
+    **Option 2: Remote fine-tuned checkpoint**
+    ```bash
+    uv run python gr00t/eval/run_gr00t_server.py \
+        --model-path nvidia/GR00T-N1.6-G1-PnPAppleToPlate \
+        --embodiment-tag UNITREE_G1 \
+        --use-sim-policy-wrapper
+    ```
+  </Step>
+  
+  <Step title="Start evaluation client">
+    In Terminal 2:
+    ```bash
+    gr00t/eval/sim/GR00T-WholeBodyControl/GR00T-WholeBodyControl_uv/.venv/bin/python \
+        gr00t/eval/rollout_policy.py \
+        --n_episodes 10 \
+        --max_episode_steps=1440 \
+        --env_name gr00tlocomanip_g1_sim/LMPnPAppleToPlateDC_G1_gear_wbc \
+        --n_action_steps 20 \
+        --n_envs 5
+    ```
+  </Step>
+</Steps>
+
+## Available tasks
+
+- `gr00tlocomanip_g1_sim/LMPnPAppleToPlateDC_G1_gear_wbc` - Pick apple and place on plate with dynamic constraints
+
+## Real robot deployment
+
+When working with real Unitree G1 robot data, you have two options:
+
+### Option 1: Using GR00T-WholeBodyControl
+
+If you collected data using [GR00T-WholeBodyControl](https://github.com/NVlabs/GR00T-WholeBodyControl), leverage the `UNITREE_G1` embodiment tag. This is a pre-trained embodiment with models already trained on in-the-wild Unitree G1 datasets.
+
+### Option 2: Custom whole-body controller
+
+If your data was collected using a different whole-body controller, create and fine-tune with a `NEW_EMBODIMENT` tag. This allows you to define a custom embodiment tailored to your specific controller setup.
+
+See the [fine-tune new embodiment guide](/getting-started/finetune-new-embodiment) for detailed instructions.

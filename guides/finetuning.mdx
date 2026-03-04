@@ -1,0 +1,171 @@
+---
+title: Fine-tuning
+description: Fine-tuning GR00T on custom datasets
+---
+
+This guide demonstrates how to fine-tune GR00T on your own robot data and configuration. We provide a complete example for the SO-100 robot under `examples/SO100`, which uses `demo_data/cube_to_bowl_5` as the demo dataset.
+
+<Steps>
+
+### Prepare your data
+
+Prepare your data in GR00T-flavored LeRobot v2 format by following the [data preparation guide](/guides/data-preparation).
+
+### Prepare your modality configuration
+
+Define your own modality configuration. Below is an example configuration that corresponds to the demo data:
+
+```python examples/SO100/so100_config.py
+from gr00t.configs.data.embodiment_configs import register_modality_config
+from gr00t.data.types import ModalityConfig, ActionConfig, ActionRepresentation, ActionType, ActionFormat
+from gr00t.data.embodiment_tags import EmbodimentTag
+
+so100_config = {
+    "video": ModalityConfig(
+        delta_indices=[0],
+        modality_keys=[
+            "front",
+            "wrist",
+        ],
+    ),
+    "state": ModalityConfig(
+        delta_indices=[0],
+        modality_keys=[
+            "single_arm",
+            "gripper",
+        ],
+    ),
+    "action": ModalityConfig(
+        delta_indices=list(range(0, 16)),
+        modality_keys=[
+            "single_arm",
+            "gripper",
+        ],
+        action_configs=[
+            # single_arm
+            ActionConfig(
+                rep=ActionRepresentation.RELATIVE,
+                type=ActionType.NON_EEF,
+                format=ActionFormat.DEFAULT,
+            ),
+            # gripper
+            ActionConfig(
+                rep=ActionRepresentation.ABSOLUTE,
+                type=ActionType.NON_EEF,
+                format=ActionFormat.DEFAULT,
+            ),
+        ],
+    ),
+    "language": ModalityConfig(
+        delta_indices=[0],
+        modality_keys=["annotation.human.action.task_description"],
+    ),
+}
+
+register_modality_config(so100_config, embodiment_tag=EmbodimentTag.NEW_EMBODIMENT)
+```
+
+<Warning>
+Register your modality configuration under the `EmbodimentTag.NEW_EMBODIMENT` tag.
+</Warning>
+
+### Run fine-tuning
+
+Use `gr00t/experiment/launch_finetune.py` as the entry point. Ensure that the uv environment is enabled before launching.
+
+#### View available arguments
+
+```bash
+python gr00t/experiment/launch_finetune.py --help
+```
+
+#### Execute fine-tuning
+
+```bash
+# Configure for single GPU
+export NUM_GPUS=1
+CUDA_VISIBLE_DEVICES=0 python \
+    gr00t/experiment/launch_finetune.py \
+    --base-model-path nvidia/GR00T-N1.6-3B \
+    --dataset-path ./demo_data/cube_to_bowl_5 \
+    --embodiment-tag NEW_EMBODIMENT \
+    --modality-config-path examples/SO100/so100_config.py \
+    --num-gpus $NUM_GPUS \
+    --output-dir /tmp/so100 \
+    --save-total-limit 5 \
+    --save-steps 2000 \
+    --max-steps 2000 \
+    --use-wandb \
+    --global-batch-size 32 \
+    --color-jitter-params brightness 0.3 contrast 0.4 saturation 0.5 hue 0.08 \
+    --dataloader-num-workers 4
+```
+
+### Run open-loop evaluation
+
+After fine-tuning, evaluate the model's performance using open-loop evaluation:
+
+```bash
+python gr00t/eval/open_loop_eval.py \
+    --dataset-path ./demo_data/cube_to_bowl_5 \
+    --embodiment-tag NEW_EMBODIMENT \
+    --model-path /tmp/so100/checkpoint-2000 \
+    --traj-ids 0 \
+    --action-horizon 16 \
+    --steps 400 \
+    --modality-keys single_arm gripper
+```
+
+</Steps>
+
+## Key parameters
+
+| Parameter | Description |
+|-----------|-------------|
+| `--base-model-path` | Path to the pre-trained base model checkpoint |
+| `--dataset-path` | Path to your training dataset |
+| `--embodiment-tag` | Tag to identify your robot embodiment |
+| `--modality-config-path` | Path to user-specified modality config (required only for `NEW_EMBODIMENT` tag) |
+| `--output-dir` | Directory where checkpoints will be saved |
+| `--save-steps` | Save checkpoint every N steps |
+| `--max-steps` | Total number of training steps |
+| `--use-wandb` | Enable Weights & Biases logging for experiment tracking |
+| `--global-batch-size` | Global batch size across all GPUs |
+| `--color-jitter-params` | Color jitter augmentation parameters |
+| `--dataloader-num-workers` | Number of data loading workers |
+
+## Recommended configuration
+
+For optimal results, maximize your batch size based on available hardware and train for a few thousand steps.
+
+### Hardware performance
+
+- We recommend using 1 H100 node or L40 node for optimal fine-tuning performance
+- Other hardware configurations (e.g., A6000) will also work but may require longer training time
+- Optimal batch size depends on your hardware and which model components are being tuned
+
+### Training variance
+
+<Warning>
+Users may observe some variance in post-training results across runs, even when using the same configuration, seed, and dropout settings. In our experiments, we have observed performance differences as large as 5-6% between runs. This variance may be attributed to non-deterministic operations in image augmentations or other stochastic components.
+</Warning>
+
+## Dataloader optimization
+
+When training a model, you can optimize the dataloading speed vs memory usage via various command line arguments:
+
+```bash
+python gr00t/experiment/launch_finetune.py \
+    ... \
+    --num-shards-per-epoch 100 \
+    --dataloader-num-workers 2 \
+    --shard-size 512
+```
+
+If VRAM is limited, you can reduce all the numbers above to reduce memory usage.
+
+To ensure more IID during sampling of shards, you can reduce the `episode_sampling_rate` to 0.05 or lower.
+
+## Advanced configuration
+
+For more extensive fine-tuning configuration, use `gr00t/experiment/launch_train.py` instead to launch the training process with full control over all training parameters.

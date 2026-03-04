@@ -1,122 +1,142 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "Isaac GR00T",
+  "theme": "aspen",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#76B900",
+    "light": "#90D624",
+    "dark": "#5A9100"
   },
-  "favicon": "/favicon.svg",
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/NVIDIA/Isaac-GR00T"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/NVIDIA/Isaac-GR00T"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Overview",
             "pages": [
-              "index",
-              "quickstart",
-              "development"
+              "introduction",
+              "whats-new",
+              "architecture"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Getting Started",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "getting-started/installation",
+              "getting-started/quickstart",
+              "getting-started/hardware-requirements"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Core Concepts",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "concepts/model-overview",
+              "concepts/embodiment-tags",
+              "concepts/modality-configs",
+              "concepts/data-format"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "Guides",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "guides/data-preparation",
+              "guides/inference",
+              "guides/finetuning",
+              "guides/evaluation",
+              "guides/policy-api",
+              "guides/custom-embodiment"
+            ]
+          },
+          {
+            "group": "Benchmarks & Examples",
+            "pages": [
+              "examples/overview",
+              "examples/libero",
+              "examples/simplerenv",
+              "examples/behavior",
+              "examples/robocasa",
+              "examples/g1-locomanipulation",
+              "examples/droid",
+              "examples/pointnav",
+              "examples/so100"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/server-client",
+              "deployment/optimization",
+              "deployment/tensorrt",
+              "deployment/docker"
+            ]
+          },
+          {
+            "group": "Resources",
+            "pages": [
+              "resources/model-checkpoints",
+              "resources/troubleshooting",
+              "resources/faq",
+              "resources/contributing"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "API Reference",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Policy",
             "pages": [
-              "api-reference/introduction"
+              "api/policy/gr00t-policy",
+              "api/policy/policy-wrapper",
+              "api/policy/server-client"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Data",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "api/data/embodiment-tags",
+              "api/data/dataset",
+              "api/data/processor",
+              "api/data/types"
+            ]
+          },
+          {
+            "group": "Model",
+            "pages": [
+              "api/model/gr00t-model",
+              "api/model/config"
+            ]
+          },
+          {
+            "group": "Training",
+            "pages": [
+              "api/training/launch-finetune",
+              "api/training/training-config"
+            ]
+          },
+          {
+            "group": "Evaluation",
+            "pages": [
+              "api/eval/open-loop",
+              "api/eval/closed-loop",
+              "api/eval/server"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

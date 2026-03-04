@@ -1,0 +1,114 @@
+---
+title: Model overview
+description: Overview of the GR00T model architecture and capabilities
+---
+
+NVIDIA Isaac GR00T N1.6 is an open vision-language-action (VLA) model for generalized humanoid robot skills. This cross-embodiment model takes multimodal input, including language and images, to perform manipulation tasks in diverse environments.
+
+## Architecture
+
+The neural network architecture of GR00T N1.6 is a combination of vision-language foundation model and diffusion transformer head that denoises continuous actions.
+
+<img src="/images/model-architecture.png" alt="GR00T N1.6 architecture diagram" />
+
+### Key components
+
+The model consists of three main components:
+
+1. **Vision-Language Model (VLM)**: Cosmos-Reason-2B variant that encodes images in their native aspect ratio without padding
+2. **Diffusion Transformer (DiT)**: 32-layer transformer that denoises continuous action chunks
+3. **Action Prediction Head**: Outputs state-relative action chunks for most embodiments
+
+## Model capabilities
+
+GR00T N1.6 is trained on a diverse mixture of robot data and is adaptable through post-training for specific embodiments, tasks, and environments.
+
+### Training data
+
+The model is pre-trained on 10,000+ hours of robot data from various embodiments:
+
+- Bimanual YAM arms
+- AGIBot Genie1
+- Simulated Galaxea R1 Pro on the BEHAVIOR suite
+- Whole-body locomanipulation with Unitree G1
+- RoboCasa Panda robot with omron mobile base
+- Fourier GR1 robot
+
+### Cross-embodiment support
+
+GR00T N1.6 supports multiple robot embodiments out of the box. See [Embodiment tags](/concepts/embodiment-tags) for the full list of supported robots.
+
+## What's new in N1.6
+
+GR00T N1.6 represents a significant upgrade over GR00T N1.5, with improvements in both model architecture and data leading to better performance.
+
+### Architectural changes
+
+- **Base VLM**: Uses an internal NVIDIA Cosmos-Reason-2B VLM variant with flexible resolution support
+- **Larger DiT**: 2x larger DiT (32 layers vs 16 layers in N1.5)
+- **Simplified architecture**: Removes N1.5's post-VLM 4-layer transformer adapter and unfreezes top 4 layers of the VLM during pretraining
+- **State-relative actions**: Predicts state-relative action chunks for most embodiments, rather than absolute joint angles or EEF positions
+
+### Performance improvements
+
+<Info>
+GR00T-N1.6-3B achieves real-time inference at 27.3 Hz on RTX 5090 with torch.compile optimization.
+</Info>
+
+Inference timing (4 denoising steps, single view):
+
+| Device | Mode | Data Processing | Backbone | Action Head | E2E | Frequency |
+|--------|------|-----------------|----------|-------------|-----|--------|
+| RTX 5090 | torch.compile | 2 ms | 18 ms | 16 ms | 37 ms | 27.3 Hz |
+| H100 | torch.compile | 4 ms | 23 ms | 11 ms | 38 ms | 26.3 Hz |
+| RTX 4090 | torch.compile | 2 ms | 25 ms | 17 ms | 44 ms | 22.8 Hz |
+| Thor | torch.compile | 5 ms | 39 ms | 61 ms | 105 ms | 9.5 Hz |
+
+## Use cases
+
+GR00T N1.6 is designed for researchers and professionals in robotics to:
+
+- Leverage a pre-trained foundation model for robot control
+- Fine-tune on small, custom datasets
+- Adapt the model to specific robotics tasks with minimal data
+- Deploy the model for inference on various hardware platforms
+
+<Note>
+The focus is on enabling customization of robot behaviors through finetuning rather than training from scratch.
+</Note>
+
+## Model checkpoints
+
+### Base models
+
+Pre-trained base VLA model checkpoints are available for finetuning:
+
+- **GR00T N1.6**: [nvidia/GR00T-N1.6-3B](https://huggingface.co/nvidia/GR00T-N1.6-3B) (3B parameters)
+- **GR00T N1.5**: [nvidia/GR00T-N1.5-3B](https://huggingface.co/nvidia/GR00T-N1.5-3B) (3B parameters)
+
+### Finetuned models
+
+Finetuned checkpoints are available for various robot platforms and benchmarks:
+
+- **GR00T-N1.6-bridge**: Fine-tuned on Bridge dataset for WidowX robot
+- **GR00T-N1.6-fractal**: Fine-tuned on Fractal dataset for Google robot
+- **GR00T-N1.6-BEHAVIOR1k**: Fine-tuned on BEHAVIOR-1K for Galaxea R1 Pro
+- **GR00T-N1.6-G1-PnPAppleToPlate**: Fine-tuned for Unitree G1 loco-manipulation
+- **GR00T-N1.6-DROID**: Fine-tuned for DROID robot
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Embodiment tags" icon="robot" href="/concepts/embodiment-tags">
+    Learn about supported robot embodiments
+  </Card>
+  <Card title="Modality configs" icon="sliders" href="/concepts/modality-configs">
+    Configure your robot's data processing
+  </Card>
+  <Card title="Data format" icon="database" href="/concepts/data-format">
+    Understand the LeRobot v2 data format
+  </Card>
+  <Card title="Fine-tuning guide" icon="graduation-cap" href="/guides/finetuning">
+    Start fine-tuning on your robot
+  </Card>
+</CardGroup>

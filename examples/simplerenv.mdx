@@ -1,0 +1,176 @@
+---
+title: SimplerEnv benchmark
+description: Framework for evaluating real-world robot manipulation policies in GPU-accelerated simulation
+---
+
+SimperEnv is a framework for evaluating real-world robot manipulation policies (RT-1, RT-1-X, Octo) in simulation. It replicates common setups like Google Robot and WidowX+Bridge, with GPU-accelerated simulations providing 10-15x speedup.
+
+For more information, see the [official repository](https://github.com/simpler-env/SimplerEnv).
+
+## Benchmark results
+
+### Bridge dataset (WidowX robot)
+
+Checkpoint: [nvidia/GR00T-N1.6-bridge](https://huggingface.co/nvidia/GR00T-N1.6-bridge)
+
+| Task | Success rate |
+|------|-------------|
+| widowx_spoon_on_towel | 129/200 (64.5%) |
+| widowx_carrot_on_plate | 131/200 (65.5%) |
+| widowx_put_eggplant_in_basket | 186/200 (93%) |
+| widowx_stack_cube | 11/200 (5.5%) |
+| widowx_put_eggplant_in_sink | 80/200 (40%) |
+| widowx_close_drawer | 141/200 (70.5%) |
+| widowx_open_drawer | 191/200 (95.5%) |
+| **Average** | **62.07%** |
+
+### Fractal dataset (Google robot)
+
+Checkpoint: [nvidia/GR00T-N1.6-fractal](https://huggingface.co/nvidia/GR00T-N1.6-fractal)
+
+| Task | Success rate |
+|------|-------------|
+| google_robot_pick_coke_can | 195/200 (97.5%) |
+| google_robot_pick_object | 174/200 (87%) |
+| google_robot_move_near | 151/200 (75.5%) |
+| google_robot_open_drawer | 88/200 (44%) |
+| google_robot_close_drawer | 175/200 (87.5%) |
+| google_robot_place_in_closed_drawer | 29/200 (14.5%) |
+| **Average** | **67.66%** |
+
+## Fine-tuning
+
+### Bridge dataset (WidowX robot)
+
+<Steps>
+  <Step title="Download dataset">
+    ```bash
+    huggingface-cli download \
+        --repo-type dataset IPEC-COMMUNITY/bridge_orig_lerobot \
+        --local-dir examples/SimplerEnv/bridge_orig_lerobot/
+    ```
+  </Step>
+  
+  <Step title="Copy modality configuration">
+    ```bash
+    cp -r examples/SimplerEnv/bridge_modality.json \
+       examples/SimplerEnv/bridge_orig_lerobot/meta/modality.json
+    ```
+  </Step>
+  
+  <Step title="Run fine-tuning">
+    ```bash
+    uv run bash examples/SimplerEnv/finetune_bridge.sh
+    ```
+  </Step>
+</Steps>
+
+<Note>
+Remember to set `WANDB_API_KEY` if using Weights & Biases tracking, or remove the `--use-wandb` flag from the training script.
+</Note>
+
+### Fractal dataset (Google robot)
+
+<Steps>
+  <Step title="Download dataset">
+    ```bash
+    cd examples/SimplerEnv
+    huggingface-cli download \
+        --repo-type dataset IPEC-COMMUNITY/fractal20220817_data_lerobot \
+        --local-dir examples/SimplerEnv/fractal20220817_data_lerobot/
+    ```
+  </Step>
+  
+  <Step title="Copy modality configuration">
+    ```bash
+    cp -r examples/SimplerEnv/fractal_modality.json \
+       examples/SimplerEnv/fractal20220817_data_lerobot/meta/modality.json
+    ```
+  </Step>
+  
+  <Step title="Convert video format (optional)">
+    If AV1 codec doesn't work on your machine:
+    ```bash
+    uv run python convert_av1_to_h264.py --root fractal20220817_data_lerobot --jobs 16
+    ```
+  </Step>
+  
+  <Step title="Run fine-tuning">
+    ```bash
+    uv run bash examples/SimplerEnv/finetune_fractal.sh
+    ```
+  </Step>
+</Steps>
+
+## Evaluation
+
+### Setup environment
+
+Install the required dependencies (only needs to be done once):
+
+```bash
+sudo apt update
+sudo apt install libegl1-mesa-dev libglu1-mesa
+bash gr00t/eval/sim/SimplerEnv/setup_SimplerEnv.sh
+```
+
+### Run evaluation
+
+<Steps>
+  <Step title="Start policy server">
+    In Terminal 1, choose one of the following options:
+    
+    **Option 1: Local fine-tuned checkpoint**
+    ```bash
+    uv run python gr00t/eval/run_gr00t_server.py \
+        --model-path /tmp/fractal_finetune/checkpoint-30000 \
+        --embodiment-tag OXE_GOOGLE \
+        --use-sim-policy-wrapper
+    ```
+    
+    **Option 2: Remote fine-tuned checkpoint**
+    ```bash
+    uv run python gr00t/eval/run_gr00t_server.py \
+        --model-path nvidia/GR00T-N1.6-fractal \
+        --embodiment-tag OXE_GOOGLE \
+        --use-sim-policy-wrapper
+    ```
+  </Step>
+  
+  <Step title="Start evaluation client">
+    In Terminal 2:
+    ```bash
+    gr00t/eval/sim/SimplerEnv/simpler_uv/.venv/bin/python gr00t/eval/rollout_policy.py \
+        --n_episodes 10 \
+        --policy_client_host 127.0.0.1 \
+        --policy_client_port 5555 \
+        --max_episode_steps=300 \
+        --env_name simpler_env_google/google_robot_pick_coke_can \
+        --n_action_steps 1 \
+        --n_envs 5
+    ```
+  </Step>
+</Steps>
+
+## Available tasks
+
+### Google robot tasks
+
+- `simpler_env_google/google_robot_pick_coke_can`
+- `simpler_env_google/google_robot_pick_object`
+- `simpler_env_google/google_robot_move_near`
+- `simpler_env_google/google_robot_open_drawer`
+- `simpler_env_google/google_robot_close_drawer`
+- `simpler_env_google/google_robot_place_in_closed_drawer`
+
+### WidowX robot tasks
+
+- `simpler_env_widowx/widowx_spoon_on_towel`
+- `simpler_env_widowx/widowx_carrot_on_plate`
+- `simpler_env_widowx/widowx_put_eggplant_in_basket`
+- `simpler_env_widowx/widowx_stack_cube`
+- `simpler_env_widowx/widowx_put_eggplant_in_sink`
+- `simpler_env_widowx/widowx_close_drawer`
+- `simpler_env_widowx/widowx_open_drawer`
+
+You can find additional tasks at the [SimplerEnv repository](https://github.com/youliangtan/SimplerEnv).

@@ -1,0 +1,397 @@
+---
+title: Frequently asked questions
+description: Common questions about Isaac GR00T
+---
+
+Answers to frequently asked questions about NVIDIA Isaac GR00T.
+
+## General
+
+<AccordionGroup>
+  <Accordion title="What is Isaac GR00T?">
+    NVIDIA Isaac GR00T N1.6 is an open vision-language-action (VLA) model for generalized humanoid robot skills. This cross-embodiment model takes multimodal input, including language and images, to perform manipulation tasks in diverse environments.
+
+    GR00T N1.6 is trained on a diverse mixture of robot data including bimanual, semi-humanoid and an expansive humanoid dataset. It is adaptable through post-training for specific embodiments, tasks and environments.
+  </Accordion>
+
+  <Accordion title="Who is Isaac GR00T designed for?">
+    GR00T N1.6 is intended for researchers and professionals in robotics. This repository provides tools to:
+
+    - Leverage a pre-trained foundation model for robot control
+    - Fine-tune on small, custom datasets
+    - Adapt the model to specific robotics tasks with minimal data
+    - Deploy the model for inference
+
+    The focus is on enabling customization of robot behaviors through finetuning.
+  </Accordion>
+
+  <Accordion title="What's the difference between GR00T N1.5 and N1.6?">
+    GR00T N1.6 represents a significant upgrade over N1.5 with:
+
+    **Architectural changes:**
+    - Uses NVIDIA Cosmos-Reason-2B VLM variant with flexible resolution support
+    - 2x larger DiT (32 layers vs 16 layers)
+    - Simplified architecture removing the post-VLM transformer adapter
+    - Predicts state-relative action chunks instead of absolute positions
+
+    **Additional training data:**
+    - Bimanual YAM arms
+    - AGIBot Genie1
+    - Simulated Galaxea R1 Pro on BEHAVIOR suite
+    - Unitree G1 whole-body locomanipulation
+
+    **Code improvements:**
+    - Faster dataloader with sharded support
+    - Simplified data processing pipeline
+    - Flexible training configuration
+  </Accordion>
+
+  <Accordion title="Can I use the older GR00T N1.5 model?">
+    Yes, to use GR00T N1.5, checkout the [n1.5-release branch](https://github.com/NVIDIA/Isaac-GR00T/tree/n1.5-release).
+
+    ```bash
+    git checkout n1.5-release
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Installation and setup
+
+<AccordionGroup>
+  <Accordion title="What are the system requirements?">
+    **Minimum requirements:**
+    - NVIDIA GPU with CUDA support (CUDA 12.4 recommended, 11.8 also works)
+    - Python 3.10
+    - uv v0.8.4+ for dependency management
+
+    **Recommended hardware for finetuning:**
+    - 1 H100 node or L40 node for optimal performance
+    - RTX PRO 6000 Blackwell Server Edition or DGX B300 for production use
+
+    **Deployment:**
+    - Jetson AGX Thor Developer Kit for edge deployment
+
+    See the [hardware recommendation guide](/getting-started/hardware) for detailed specifications.
+  </Accordion>
+
+  <Accordion title="Do I need to install submodules?">
+    Yes, GR00T relies on submodules for certain dependencies. Include them when cloning:
+
+    ```bash
+    git clone --recurse-submodules https://github.com/NVIDIA/Isaac-GR00T
+    cd Isaac-GR00T
+    ```
+
+    If you've already cloned without submodules, initialize them separately:
+
+    ```bash
+    git submodule update --init --recursive
+    ```
+  </Accordion>
+
+  <Accordion title="Should I use Docker or local installation?">
+    **Use Docker if:**
+    - You want to avoid system-level dependency conflicts
+    - You need a reproducible environment
+    - You're deploying to multiple machines
+
+    **Use local installation if:**
+    - You need direct access to GPU drivers
+    - You're developing and iterating quickly
+    - You prefer managing dependencies with uv
+
+    Both options are fully supported. See the [Docker setup guide](/deployment/docker) for containerized setup.
+  </Accordion>
+
+  <Accordion title="Which CUDA version should I use?">
+    CUDA 12.4 is recommended and officially tested. However, CUDA 11.8 has also been verified to work.
+
+    - For CUDA 11.8: Install `flash-attn==2.8.2`
+    - For CUDA 12.8 (RTX 5090): Use `flash-attn==2.8.0.post2` with `pytorch-cu128`
+
+    Make sure to install a compatible version of flash-attn manually if using a different CUDA version.
+  </Accordion>
+</AccordionGroup>
+
+## Training and finetuning
+
+<AccordionGroup>
+  <Accordion title="How much data do I need to finetune GR00T?">
+    GR00T is designed to work with small, custom datasets. The exact amount depends on:
+
+    - Task complexity
+    - Similarity to pre-training data
+    - Desired performance level
+
+    In practice, successful finetuning has been achieved with datasets ranging from hundreds to thousands of demonstrations. The model's pre-training on 10k+ hours of robot data enables efficient transfer learning.
+  </Accordion>
+
+  <Accordion title="What batch size should I use for finetuning?">
+    For optimal results, maximize your batch size based on available hardware and train for a few thousand steps.
+
+    **General recommendations:**
+    - H100: Batch size 32-64
+    - L40: Batch size 16-32
+    - RTX 4090: Batch size 8-16
+
+    If you encounter OOM errors, reduce:
+    - `--global-batch-size`
+    - `--dataloader-num-workers`
+    - `--num-shards-per-epoch`
+    - `--shard-size`
+  </Accordion>
+
+  <Accordion title="Why do I see variance in training results?">
+    Training variance is expected. In our experiments, we have observed performance differences as large as 5-6% between runs with the same configuration, seed, and dropout settings.
+
+    This variance may be attributed to:
+    - Non-deterministic operations in image augmentations
+    - Stochastic components in the training pipeline
+    - Hardware differences
+
+    **Recommendations:**
+    - Run multiple training runs and select the best checkpoint
+    - Use validation metrics to track performance
+    - Keep this variance in mind when comparing to reported benchmarks
+  </Accordion>
+
+  <Accordion title="Can I finetune on my own robot?">
+    Yes! Follow the [finetuning guide for new embodiments](/guides/finetuning-new-embodiment).
+
+    **Prerequisites:**
+    - Demonstration data in GR00T-flavored LeRobot v2 format
+    - Modality configuration file specifying cameras, states, and actions
+
+    **Steps:**
+    1. Convert your data to LeRobot format
+    2. Create a modality config JSON
+    3. Run the finetuning script with `--embodiment-tag NEW_EMBODIMENT`
+  </Accordion>
+
+  <Accordion title="What are the pre-registered embodiment tags?">
+    GR00T provides several pre-registered embodiment tags with ready-to-use configurations:
+
+    - `LIBERO_PANDA`
+    - `OXE_GOOGLE`
+    - `OXE_WIDOWX`
+    - `UNITREE_G1`
+    - `BEHAVIOR_R1_PRO`
+    - `GR1`
+
+    These can be used directly without creating custom modality configs.
+  </Accordion>
+</AccordionGroup>
+
+## Inference and deployment
+
+<AccordionGroup>
+  <Accordion title="What inference speed can I expect?">
+    GR00T-N1.6-3B inference timing (4 denoising steps, single view):
+
+    | Device | End-to-end latency | Frequency |
+    |--------|-------------------|-----------||
+    | RTX 5090 | 37 ms | 27.3 Hz |
+    | H100 | 38 ms | 26.3 Hz |
+    | RTX 4090 | 44 ms | 22.8 Hz |
+    | Jetson AGX Thor | 105 ms | 9.5 Hz |
+
+    For faster inference, use TensorRT optimization.
+  </Accordion>
+
+  <Accordion title="Should I use server-client architecture or local policy?">
+    **Use server-client architecture when:**
+    - Running policy on a separate GPU server from robot controller
+    - Need to isolate dependencies between policy and robot code
+    - Deploying to multiple robots with centralized inference
+
+    **Use local policy when:**
+    - Policy and robot controller run on the same machine
+    - Need lowest possible latency
+    - Simple single-robot setup
+
+    The server-client architecture uses ZeroMQ for efficient communication and is recommended for most production deployments.
+  </Accordion>
+
+  <Accordion title="How do I debug my environment integration?">
+    Use `ReplayPolicy` to replay ground-truth actions from your dataset:
+
+    ```bash
+    # Start server with ReplayPolicy
+    uv run python gr00t/eval/run_gr00t_server.py \
+      --dataset-path /path/to/lerobot_dataset \
+      --embodiment-tag NEW_EMBODIMENT \
+      --execution-horizon 8
+    ```
+
+    If replaying achieves high (often 100%) success rates, your environment is set up correctly. Low success rates indicate:
+    - Environment reset state mismatch
+    - Observation preprocessing issues
+    - Action space mismatches
+  </Accordion>
+
+  <Accordion title="Can I run GR00T on Jetson AGX Thor?">
+    Yes, GR00T can be deployed on Jetson AGX Thor for edge inference. The Thor platform provides:
+
+    - Blackwell GPU with 2560 CUDA cores
+    - 14-core Arm Neoverse-V3AE CPU
+    - 128GB LP5 memory
+
+    Expect inference at approximately 9.5 Hz (105ms latency) for GR00T-N1.6-3B with torch.compile.
+  </Accordion>
+
+  <Accordion title="What observation format does the policy expect?">
+    The policy expects observations as a nested dictionary with three modalities:
+
+    ```python
+    observation = {
+        "video": {
+            "camera_name": np.ndarray,  # Shape: (B, T, H, W, 3), dtype: uint8
+        },
+        "state": {
+            "state_name": np.ndarray,   # Shape: (B, T, D), dtype: float32
+        },
+        "language": {
+            "task": [[str]],            # Shape: (B, 1)
+        }
+    }
+    ```
+
+    Use `policy.get_modality_config()` to query expected camera names, state keys, and temporal horizons.
+  </Accordion>
+</AccordionGroup>
+
+## Data and datasets
+
+<AccordionGroup>
+  <Accordion title="What data format does GR00T use?">
+    GR00T uses the GR00T-flavored LeRobot v2 format, which is compatible with [Hugging Face LeRobot Dataset V2](https://github.com/huggingface/lerobot).
+
+    The format consists of:
+    - Parquet files for episode metadata and timesteps
+    - MP4 videos for camera observations
+    - Numpy arrays for states and actions
+
+    See the [data preparation guide](/guides/data-preparation) for details.
+  </Accordion>
+
+  <Accordion title="How do I convert my existing dataset?">
+    Use the conversion scripts provided in `scripts/lerobot_conversion/`:
+
+    ```bash
+    python scripts/lerobot_conversion/convert_v3_to_v2.py \
+      --input-dir /path/to/v3 \
+      --output-dir /path/to/v2
+    ```
+
+    For custom data formats, refer to the [data preparation guide](/guides/data-preparation) for the schema specification.
+  </Accordion>
+
+  <Accordion title="What pre-training data was used for GR00T N1.6?">
+    GR00T N1.6 is pre-trained on 10k+ hours of diverse robot data including:
+
+    - Bimanual manipulation datasets
+    - Semi-humanoid robot demonstrations
+    - Humanoid whole-body control data
+    - Bimanual YAM arms
+    - AGIBot Genie1
+    - Simulated Galaxea R1 Pro on BEHAVIOR suite
+    - Unitree G1 whole-body locomanipulation
+
+    Additionally, it builds on the N1.5 data mixture with several thousand additional hours.
+  </Accordion>
+</AccordionGroup>
+
+## Evaluation
+
+<AccordionGroup>
+  <Accordion title="What's the difference between open-loop and closed-loop evaluation?">
+    **Open-loop evaluation:**
+    - Offline assessment comparing predicted actions to ground truth
+    - Fast, doesn't require simulation environment
+    - Good for quick validation of model training
+    - Generates MSE plots and visualizations
+
+    **Closed-loop evaluation:**
+    - Online assessment in simulation or real environment
+    - Tests actual policy performance with visual feedback
+    - Required for measuring task success rates
+    - More realistic but slower
+
+    We recommend starting with open-loop, then moving to closed-loop for comprehensive assessment.
+  </Accordion>
+
+  <Accordion title="Which simulation benchmarks are supported?">
+    **Zero-shot evaluation (no finetuning):**
+    - RoboCasa
+    - RoboCasa GR1 Tabletop Tasks
+
+    **Finetuned evaluation:**
+    - LIBERO
+    - SimplerEnv (Bridge, Fractal)
+    - BEHAVIOR-1K
+    - G1 LocoManipulation
+    - PointNav
+    - SO-100
+    - DROID
+
+    Each benchmark has its own setup guide in the `examples/` directory.
+  </Accordion>
+
+  <Accordion title="How do I add a new simulation benchmark?">
+    To add a new benchmark:
+
+    1. Register environment prefix in `gr00t/eval/sim/env_utils.py`:
+       ```python
+       ENV_PREFIX_TO_EMBODIMENT_TAG = {
+           ...
+           "my_new_benchmark": EmbodimentTag.MY_ROBOT,
+       }
+       ```
+
+    2. Add test cases in `tests/gr00t/eval/sim/test_env_utils.py`
+
+    3. Create environment wrapper that implements the Policy API observation/action format
+
+    4. Test with ReplayPolicy before running with trained models
+
+    See the [evaluation guide](/guides/evaluation) for detailed instructions.
+  </Accordion>
+</AccordionGroup>
+
+## Contributing
+
+<AccordionGroup>
+  <Accordion title="How can I contribute to Isaac GR00T?">
+    We welcome contributions! See the [contributing guide](/resources/contributing) for:
+
+    - Reporting bugs
+    - Suggesting features
+    - Making pull requests
+    - Code style guidelines
+    - Testing requirements
+  </Accordion>
+
+  <Accordion title="How do I report a bug?">
+    1. Search [existing issues](https://github.com/NVIDIA/Isaac-GR00T/issues) to see if it's already reported
+    2. If not, [open a new issue](https://github.com/NVIDIA/Isaac-GR00T/issues/new) with:
+       - Clear title and description
+       - Steps to reproduce
+       - Expected vs actual behavior
+       - Error messages and stack traces
+       - Environment information (CUDA version, GPU, OS, etc.)
+  </Accordion>
+
+  <Accordion title="What code style should I follow?">
+    GR00T uses `ruff` for code formatting and linting:
+
+    ```bash
+    # Format code
+    ruff format .
+
+    # Fix linting issues
+    ruff check --fix .
+    ```
+
+    All pull requests must pass the CI checks which include ruff formatting and linting.
+  </Accordion>
+</AccordionGroup>

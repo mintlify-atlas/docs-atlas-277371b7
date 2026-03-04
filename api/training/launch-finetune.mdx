@@ -1,0 +1,208 @@
+---
+title: launch_finetune.py
+description: Script for fine-tuning Vision-Language-Action (VLA) models on custom datasets
+---
+
+The `launch_finetune.py` script provides a streamlined interface for fine-tuning pretrained GR00T models on your own datasets. It handles model loading, data configuration, and distributed training setup.
+
+## Usage
+
+```bash
+python -m gr00t.experiment.launch_finetune \
+  --base-model-path <path-to-checkpoint> \
+  --dataset-path <path-to-dataset> \
+  --embodiment-tag <embodiment> \
+  --output-dir ./outputs
+```
+
+## Parameters
+
+### Data and model paths
+
+<ParamField path="base-model-path" type="str" required>
+  Path to the pretrained base model checkpoint (e.g., Hugging Face model hub or local directory).
+</ParamField>
+
+<ParamField path="dataset-path" type="str" required>
+  Path to the dataset root directory containing trajectory data for fine-tuning.
+</ParamField>
+
+<ParamField path="embodiment-tag" type="EmbodimentTag" required>
+  Identifier specifying which embodiment (robot configuration) this fine-tuning run targets.
+</ParamField>
+
+<ParamField path="modality-config-path" type="str | None" default="None">
+  Path to a Python file defining the modality configuration for the given embodiment. If `None`, uses the pre-registered modality config in `gr00t/configs/data/embodiment_configs.py`.
+</ParamField>
+
+### Model tuning flags
+
+<ParamField path="tune-llm" type="bool" default="False">
+  If `True`, fine-tune the language model (LLM) backbone during training.
+</ParamField>
+
+<ParamField path="tune-visual" type="bool" default="False">
+  If `True`, fine-tune the visual encoder (e.g., ViT or CNN backbone).
+</ParamField>
+
+<ParamField path="tune-projector" type="bool" default="True">
+  If `True`, fine-tune the multimodal projector layers that map vision/language features to a shared space.
+</ParamField>
+
+<ParamField path="tune-diffusion-model" type="bool" default="True">
+  If `True`, fine-tune the diffusion-based action decoder (if present in the model).
+</ParamField>
+
+<ParamField path="state-dropout-prob" type="float" default="0.0">
+  Dropout probability applied to state inputs for regularization during training.
+</ParamField>
+
+### Data augmentation
+
+<ParamField path="random-rotation-angle" type="int | None" default="None">
+  Maximum rotation angle (in degrees) for random rotation augmentation of input images.
+</ParamField>
+
+<ParamField path="color-jitter-params" type="dict[str, float] | None" default="None">
+  Parameters for color jitter augmentation on images.
+
+  Expected keys include:
+  - `brightness`: float
+  - `contrast`: float
+  - `saturation`: float
+  - `hue`: float
+
+  Example: `{"brightness": 0.4, "contrast": 0.4, "saturation": 0.4, "hue": 0.1}`
+
+  If `None`, applies the default color jitter augmentation from the pretrained model.
+</ParamField>
+
+### Training configuration
+
+<ParamField path="global-batch-size" type="int" default="64">
+  Total effective batch size across all GPUs and accumulation steps.
+</ParamField>
+
+<ParamField path="dataloader-num-workers" type="int" default="2">
+  Number of parallel worker processes used for data loading.
+</ParamField>
+
+<ParamField path="learning-rate" type="float" default="1e-4">
+  Initial learning rate for optimizer.
+</ParamField>
+
+<ParamField path="gradient-accumulation-steps" type="int" default="1">
+  Number of forward passes to accumulate before performing a backward/update step.
+</ParamField>
+
+<ParamField path="output-dir" type="str" default="./outputs">
+  Directory where model checkpoints, logs, and outputs are saved.
+</ParamField>
+
+<ParamField path="save-steps" type="int" default="1000">
+  Frequency (in training steps) at which to save checkpoints.
+</ParamField>
+
+<ParamField path="save-total-limit" type="int" default="5">
+  Maximum number of checkpoints to keep before older ones are deleted.
+</ParamField>
+
+<ParamField path="num-gpus" type="int" default="1">
+  Number of GPUs available for distributed or single-node training.
+</ParamField>
+
+<ParamField path="use-wandb" type="bool" default="False">
+  If `True`, log metrics and artifacts to Weights & Biases (wandb). The project is `finetune-gr00t-n1d6`. You need to login to wandb to view the logs.
+</ParamField>
+
+<ParamField path="max-steps" type="int" default="10000">
+  Total number of training steps to run before stopping.
+</ParamField>
+
+<ParamField path="weight-decay" type="float" default="1e-5">
+  Weight decay coefficient for optimizer (L2 regularization).
+</ParamField>
+
+<ParamField path="warmup-ratio" type="float" default="0.05">
+  Proportion of total training steps used for learning rate warm-up.
+</ParamField>
+
+<ParamField path="shard-size" type="int" default="1024">
+  Size of the shard to use for the dataset during preloading.
+</ParamField>
+
+<ParamField path="episode-sampling-rate" type="float" default="0.1">
+  Sampling rate for the episodes.
+</ParamField>
+
+<ParamField path="num-shards-per-epoch" type="int" default="100000">
+  Number of shards to use for the dataset. Reduce this number if VRAM is limited.
+</ParamField>
+
+## Examples
+
+### Basic fine-tuning
+
+```bash
+python -m gr00t.experiment.launch_finetune \
+  --base-model-path nvidia/Eagle-Block2A-2B-v2 \
+  --dataset-path /data/my_robot_dataset \
+  --embodiment-tag FRANKA_PANDA \
+  --num-gpus 1
+```
+
+### Fine-tuning with data augmentation
+
+```bash
+python -m gr00t.experiment.launch_finetune \
+  --base-model-path ./checkpoints/base_model \
+  --dataset-path /data/my_robot_dataset \
+  --embodiment-tag UR5 \
+  --random-rotation-angle 15 \
+  --color-jitter-params '{"brightness": 0.4, "contrast": 0.4, "saturation": 0.4, "hue": 0.1}' \
+  --num-gpus 4
+```
+
+### Fine-tuning with custom learning parameters
+
+```bash
+python -m gr00t.experiment.launch_finetune \
+  --base-model-path nvidia/Eagle-Block2A-2B-v2 \
+  --dataset-path /data/my_robot_dataset \
+  --embodiment-tag FRANKA_PANDA \
+  --learning-rate 5e-5 \
+  --global-batch-size 128 \
+  --max-steps 20000 \
+  --save-steps 500 \
+  --use-wandb
+```
+
+### Fine-tuning with all model components
+
+```bash
+python -m gr00t.experiment.launch_finetune \
+  --base-model-path nvidia/Eagle-Block2A-2B-v2 \
+  --dataset-path /data/my_robot_dataset \
+  --embodiment-tag FRANKA_PANDA \
+  --tune-llm \
+  --tune-visual \
+  --tune-projector \
+  --tune-diffusion-model \
+  --num-gpus 8
+```
+
+## Environment variables
+
+- `LOGURU_LEVEL`: Controls logging verbosity (default: `INFO`)
+
+## Notes
+
+- The script automatically sets up the model with these configurations:
+  - Model: `nvidia/Eagle-Block2A-2B-v2`
+  - Optimizer: `adamw_torch`
+  - Wandb project: `finetune-gr00t-n1d6`
+  - Relative action mode enabled
+  - Eagle collator enabled
+
+- If a custom modality config is provided, it will be loaded from the specified path
+- Download cache is disabled by default for datasets

@@ -1,0 +1,358 @@
+---
+title: Modality configuration system
+description: Configure how your robot's data is loaded, processed, and interpreted
+---
+
+The modality configuration defines how your robot's data should be loaded, processed, and interpreted by the model. This configuration bridges your dataset's physical structure (defined in `meta/modality.json`) and the model's data processing pipeline.
+
+## Configuration structure
+
+A modality configuration is a Python dictionary containing four top-level keys:
+
+<ParamField path="video" type="ModalityConfig">
+  Defines which camera views to use and how to sample video frames temporally.
+</ParamField>
+
+<ParamField path="state" type="ModalityConfig">
+  Defines proprioceptive observations (joint positions, gripper states, etc.) and normalization.
+</ParamField>
+
+<ParamField path="action" type="ModalityConfig">
+  Defines the action space, prediction horizon, and action representation format.
+</ParamField>
+
+<ParamField path="language" type="ModalityConfig">
+  Defines which language annotations to use for task conditioning.
+</ParamField>
+
+## ModalityConfig class
+
+Each modality is configured using the `ModalityConfig` dataclass from `gr00t/data/types.py:69-103`:
+
+```python
+@dataclass
+class ModalityConfig:
+    """Configuration for a modality defining how data should be sampled and loaded.
+
+    This class specifies which indices to sample relative to a base index and which
+    keys to load for a particular modality (e.g., video, state, action).
+    """
+
+    delta_indices: list[int]
+    """Delta indices to sample relative to the current index."""
+    
+    modality_keys: list[str]
+    """The keys to load for the modality in the dataset."""
+    
+    sin_cos_embedding_keys: list[str] | None = None
+    """Optional list of keys to apply sin/cos encoding."""
+    
+    mean_std_embedding_keys: list[str] | None = None
+    """Optional list of keys to apply mean/std normalization."""
+    
+    action_configs: list[ActionConfig] | None = None
+```
+
+### Required fields
+
+<ParamField path="delta_indices" type="list[int]" required>
+  Defines which temporal offsets to sample relative to the current timestep.
+  
+  **Examples:**
+  - `[0]` - Current frame only
+  - `[-2, -1, 0]` - Last 3 frames for temporal stacking
+  - `list(range(0, 16))` - 16-step action prediction horizon
+</ParamField>
+
+<ParamField path="modality_keys" type="list[str]" required>
+  Specifies which keys to load from your dataset. These keys **must match** the keys defined in your `meta/modality.json` file.
+  
+  **Examples:**
+  - Video: `["front", "wrist"]`
+  - State: `["single_arm", "gripper"]`
+  - Action: `["single_arm", "gripper"]`
+  - Language: `["annotation.human.action.task_description"]`
+</ParamField>
+
+### Optional fields
+
+<ParamField path="sin_cos_embedding_keys" type="list[str] | None">
+  Specifies which state keys should use sine/cosine encoding. Best for dimensions in radians (e.g., joint angles).
+  
+  <Note>
+  This will duplicate the number of dimensions by 2, and is only recommended for proprioceptive states.
+  </Note>
+</ParamField>
+
+<ParamField path="mean_std_embedding_keys" type="list[str] | None">
+  Specifies which keys should use mean/standard deviation normalization instead of min-max normalization.
+</ParamField>
+
+<ParamField path="action_configs" type="list[ActionConfig] | None">
+  Required for the action modality. Defines how each action modality should be interpreted and transformed. The list must have the same length as `modality_keys`.
+</ParamField>
+
+## Action configuration
+
+The `ActionConfig` class defines how actions should be interpreted from `gr00t/data/types.py:61-65`:
+
+```python
+@dataclass
+class ActionConfig:
+    rep: ActionRepresentation
+    type: ActionType
+    format: ActionFormat
+    state_key: str | None = None
+```
+
+### ActionConfig fields
+
+<ParamField path="rep" type="ActionRepresentation" required>
+  Defines how actions should be interpreted:
+  
+  - `RELATIVE` - Actions are deltas from the current state
+  - `DELTA` - Alternative name for relative actions
+  - `ABSOLUTE` - Actions are target positions
+  
+  <Tip>
+  Using relative actions leads to smoother actions, but might suffer from drifting. If you want to use relative actions, make sure the state and action stored in the dataset are absolute.
+  </Tip>
+</ParamField>
+
+<ParamField path="type" type="ActionType" required>
+  Specifies the control space:
+  
+  - `EEF` - End-effector/Cartesian space control (expects 9-dimensional vector: x, y, z positions + rotation 6D)
+  - `NON_EEF` - Joint space control and other non-EEF control spaces
+</ParamField>
+
+<ParamField path="format" type="ActionFormat" required>
+  Defines the action representation format:
+  
+  - `DEFAULT` - Standard format (e.g., joint angles, gripper positions)
+  - `XYZ_ROT6D` - 3D position + 6D rotation representation for end-effector control
+  - `XYZ_ROTVEC` - 3D position + rotation vector for end-effector control
+</ParamField>
+
+<ParamField path="state_key" type="str | None">
+  Specifies the corresponding reference state key for computing relative actions when `rep=RELATIVE`. If not provided, the system will use the action key as the reference state key.
+</ParamField>
+
+## Complete example: SO-100
+
+Here's a complete configuration example from the SO-100 robot:
+
+```python
+from gr00t.configs.data.embodiment_configs import register_modality_config
+from gr00t.data.types import (
+    ModalityConfig,
+    ActionConfig,
+    ActionRepresentation,
+    ActionType,
+    ActionFormat
+)
+
+so100_config = {
+    "video": ModalityConfig(
+        delta_indices=[0],  # Current frame only
+        modality_keys=["front", "wrist"],  # Two camera views
+    ),
+    "state": ModalityConfig(
+        delta_indices=[0],  # Current state
+        modality_keys=[
+            "single_arm",  # Joint positions
+            "gripper",     # Gripper state
+        ],
+    ),
+    "action": ModalityConfig(
+        delta_indices=list(range(0, 16)),  # 16-step horizon
+        modality_keys=[
+            "single_arm",
+            "gripper",
+        ],
+        action_configs=[
+            # Single arm - relative control
+            ActionConfig(
+                rep=ActionRepresentation.RELATIVE,
+                type=ActionType.NON_EEF,
+                format=ActionFormat.DEFAULT,
+            ),
+            # Gripper - absolute control
+            ActionConfig(
+                rep=ActionRepresentation.ABSOLUTE,
+                type=ActionType.NON_EEF,
+                format=ActionFormat.DEFAULT,
+            ),
+        ],
+    ),
+    "language": ModalityConfig(
+        delta_indices=[0],
+        modality_keys=["annotation.human.task_description"],
+    ),
+}
+
+register_modality_config(so100_config)
+```
+
+## Configuring each modality
+
+<AccordionGroup>
+  <Accordion title="Video modality">
+    Defines which camera views to use:
+
+    ```python
+    "video": ModalityConfig(
+        delta_indices=[0],  # Current frame only
+        modality_keys=[
+            "front",  # Must match a key in meta/modality.json
+        ],
+    )
+    ```
+
+    For multiple cameras:
+    
+    ```python
+    "video": ModalityConfig(
+        delta_indices=[0],
+        modality_keys=["front", "wrist"],
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="State modality">
+    Defines proprioceptive observations:
+
+    ```python
+    "state": ModalityConfig(
+        delta_indices=[0],  # Current state
+        modality_keys=[
+            "single_arm",  # Must match keys in meta/modality.json
+            "gripper",
+        ],
+    )
+    ```
+
+    With sin/cos encoding for joint angles:
+
+    ```python
+    "state": ModalityConfig(
+        delta_indices=[0],
+        modality_keys=["single_arm", "gripper"],
+        sin_cos_embedding_keys=["single_arm"],  # Apply to joints
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="Action modality">
+    Defines the action space and prediction horizon:
+
+    ```python
+    "action": ModalityConfig(
+        delta_indices=list(range(0, 16)),  # Predict 16 steps
+        modality_keys=[
+            "single_arm",
+            "gripper",
+        ],
+        action_configs=[
+            # One ActionConfig per modality_key
+            ActionConfig(
+                rep=ActionRepresentation.RELATIVE,
+                type=ActionType.NON_EEF,
+                format=ActionFormat.DEFAULT,
+            ),
+            ActionConfig(
+                rep=ActionRepresentation.ABSOLUTE,
+                type=ActionType.NON_EEF,
+                format=ActionFormat.DEFAULT,
+            ),
+        ],
+    )
+    ```
+
+    <Warning>
+    If you modify `delta_indices` for the action modality, you **must** regenerate the dataset statistics by re-running:
+    
+    ```bash
+    python gr00t/data/stats.py <dataset_path> <embodiment_tag>
+    ```
+    </Warning>
+  </Accordion>
+
+  <Accordion title="Language modality">
+    Defines which language annotations to use:
+
+    ```python
+    "language": ModalityConfig(
+        delta_indices=[0],
+        modality_keys=[
+            "annotation.human.action.task_description"
+        ],
+    )
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Relationship with meta/modality.json
+
+The modality configuration's `modality_keys` must reference keys that exist in your dataset's `meta/modality.json`:
+
+```json
+{
+    "state": {
+        "single_arm": {"start": 0, "end": 5},
+        "gripper": {"start": 5, "end": 6}
+    },
+    "action": {
+        "single_arm": {"start": 0, "end": 5},
+        "gripper": {"start": 5, "end": 6}
+    },
+    "video": {
+        "front": {"original_key": "observation.images.front"},
+        "wrist": {"original_key": "observation.images.wrist"}
+    },
+    "annotation": {
+        "human.task_description": {
+            "original_key": "task_index"
+        }
+    }
+}
+```
+
+The system will:
+
+1. Use `modality_keys` to look up the corresponding entries in `meta/modality.json`
+2. Extract the correct slices from the concatenated state/action arrays
+3. Apply the specified transformations (normalization, action representation conversion)
+
+## Registering your configuration
+
+After defining your configuration, register it for use in training and inference:
+
+```python
+from gr00t.configs.data.embodiment_configs import register_modality_config
+
+your_modality_config = {
+    "video": ModalityConfig(...),
+    "state": ModalityConfig(...),
+    "action": ModalityConfig(...),
+    "language": ModalityConfig(...),
+}
+
+register_modality_config(your_modality_config)
+```
+
+Save your configuration to a Python file and pass the path to the `modality_config_path` argument when running the finetuning script.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Data format" icon="database" href="/concepts/data-format">
+    Understand the LeRobot v2 data format
+  </Card>
+  <Card title="Fine-tuning guide" icon="graduation-cap" href="/guides/finetuning">
+    Start fine-tuning with your config
+  </Card>
+  <Card title="Embodiment tags" icon="robot" href="/concepts/embodiment-tags">
+    Learn about supported robots
+  </Card>
+</CardGroup>

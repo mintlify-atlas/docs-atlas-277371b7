@@ -1,0 +1,446 @@
+---
+title: TensorRT optimization
+description: Accelerate GR00T inference with TensorRT engine compilation for up to 2x faster performance
+---
+
+TensorRT provides the fastest GR00T inference by compiling the DiT action head to GPU-specific optimized kernels. This guide covers the complete workflow from ONNX export to TensorRT inference.
+
+## Performance gains
+
+TensorRT delivers significant speedups across all GPU platforms:
+
+| Device | PyTorch Eager | TensorRT | Speedup |
+|--------|--------------|----------|----------|
+| RTX 5090 | 58 ms (17.3 Hz) | 31 ms (32.1 Hz) | 1.86x |
+| H100 | 77 ms (13.0 Hz) | 36 ms (27.9 Hz) | 2.14x |
+| RTX 4090 | 82 ms (12.2 Hz) | 43 ms (23.3 Hz) | 1.92x |
+| Thor | 117 ms (8.6 Hz) | 92 ms (10.9 Hz) | 1.27x |
+| Orin | 300 ms (3.3 Hz) | 173 ms (5.8 Hz) | 1.73x |
+
+## Prerequisites
+
+### Installation
+
+Install TensorRT dependencies:
+
+```bash
+uv sync --extra tensorrt
+```
+
+This installs:
+- ONNX export tools
+- TensorRT Python bindings
+- Additional optimization libraries
+
+### Hardware requirements
+
+- CUDA-enabled GPU with 8GB+ VRAM (recommended)
+- Compatible CUDA version (12.4 recommended, 11.8 also supported)
+- Sufficient disk space (~2GB for engine cache)
+
+## Complete workflow
+
+<Steps>
+
+### Export model to ONNX
+
+Convert the DiT action head to ONNX format:
+
+```bash
+python scripts/deployment/export_onnx_n1d6.py \
+  --model-path nvidia/GR00T-N1.6-3B \
+  --dataset-path demo_data/gr1.PickNPlace \
+  --embodiment-tag GR1 \
+  --output-dir ./groot_n1d6_onnx
+```
+
+**Output:** `./groot_n1d6_onnx/dit_model.onnx`
+
+This captures the input shapes from a sample trajectory and exports only the action head component.
+
+### Build TensorRT engine
+
+Compile the ONNX model to a TensorRT engine:
+
+```bash
+python scripts/deployment/build_tensorrt_engine.py \
+  --onnx ./groot_n1d6_onnx/dit_model.onnx \
+  --engine ./groot_n1d6_onnx/dit_model_bf16.trt \
+  --precision bf16
+```
+
+**Output:** `./groot_n1d6_onnx/dit_model_bf16.trt`
+
+<Note>
+Engine build takes 5-10 minutes depending on GPU. The engine is GPU-specific and needs to be rebuilt for different GPU architectures.
+</Note>
+
+### Run inference with TensorRT
+
+Use the compiled engine for accelerated inference:
+
+```bash
+python scripts/deployment/standalone_inference_script.py \
+  --model-path nvidia/GR00T-N1.6-3B \
+  --dataset-path demo_data/gr1.PickNPlace \
+  --embodiment-tag GR1 \
+  --traj-ids 0 1 2 \
+  --inference-mode tensorrt \
+  --trt-engine-path ./groot_n1d6_onnx/dit_model_bf16.trt \
+  --action-horizon 8
+```
+
+</Steps>
+
+## ONNX export options
+
+The `export_onnx_n1d6.py` script supports these arguments:
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--model-path` | (required) | Model checkpoint path |
+| `--dataset-path` | (required) | Dataset for capturing input shapes |
+| `--embodiment-tag` | `GR1` | Embodiment tag |
+| `--output-dir` | `./groot_n1d6_onnx` | Output directory |
+| `--video-backend` | `torchcodec` | Video backend (`decord`, `torchvision_av`, `torchcodec`) |
+
+### Example: Export for custom embodiment
+
+```bash
+python scripts/deployment/export_onnx_n1d6.py \
+  --model-path /path/to/finetuned/checkpoint \
+  --dataset-path /path/to/custom/dataset \
+  --embodiment-tag NEW_EMBODIMENT \
+  --output-dir ./custom_onnx
+```
+
+## TensorRT engine build options
+
+The `build_tensorrt_engine.py` script provides fine-grained control:
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--onnx` | (required) | Path to ONNX model |
+| `--engine` | (required) | Path to save TensorRT engine |
+| `--precision` | `bf16` | Precision mode |
+| `--workspace` | `8192` | Workspace size in MB |
+
+### Precision modes
+
+#### BF16 (recommended)
+
+Best balance of speed and accuracy:
+
+```bash
+python scripts/deployment/build_tensorrt_engine.py \
+  --onnx ./groot_n1d6_onnx/dit_model.onnx \
+  --engine ./groot_n1d6_onnx/dit_model_bf16.trt \
+  --precision bf16
+```
+
+#### FP16
+
+Higher numerical precision:
+
+```bash
+python scripts/deployment/build_tensorrt_engine.py \
+  --onnx ./groot_n1d6_onnx/dit_model.onnx \
+  --engine ./groot_n1d6_onnx/dit_model_fp16.trt \
+  --precision fp16
+```
+
+#### FP32
+
+Full precision (slowest):
+
+```bash
+python scripts/deployment/build_tensorrt_engine.py \
+  --onnx ./groot_n1d6_onnx/dit_model.onnx \
+  --engine ./groot_n1d6_onnx/dit_model_fp32.trt \
+  --precision fp32
+```
+
+#### FP8
+
+Maximum speed (requires Ada Lovelace or newer):
+
+```bash
+python scripts/deployment/build_tensorrt_engine.py \
+  --onnx ./groot_n1d6_onnx/dit_model.onnx \
+  --engine ./groot_n1d6_onnx/dit_model_fp8.trt \
+  --precision fp8
+```
+
+<Warning>
+FP8 requires RTX 40-series or newer GPUs. Verify your GPU supports FP8 before using this mode.
+</Warning>
+
+### Workspace size
+
+Increase workspace for complex models or reduce for memory-constrained environments:
+
+```bash
+# Larger workspace for better optimization
+python scripts/deployment/build_tensorrt_engine.py \
+  --onnx ./groot_n1d6_onnx/dit_model.onnx \
+  --engine ./groot_n1d6_onnx/dit_model_bf16.trt \
+  --precision bf16 \
+  --workspace 16384  # 16GB
+
+# Smaller workspace for GPUs with limited memory
+python scripts/deployment/build_tensorrt_engine.py \
+  --onnx ./groot_n1d6_onnx/dit_model.onnx \
+  --engine ./groot_n1d6_onnx/dit_model_bf16.trt \
+  --precision bf16 \
+  --workspace 4096  # 4GB
+```
+
+## Inference script arguments
+
+Key arguments for `standalone_inference_script.py`:
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--inference-mode` | `pytorch` | Must be `tensorrt` |
+| `--trt-engine-path` | `./groot_n1d6_onnx/dit_model_bf16.trt` | TensorRT engine path |
+| `--denoising-steps` | `4` | Number of denoising steps |
+| `--action-horizon` | `16` | Action horizon |
+
+## Performance tuning
+
+### Denoising steps
+
+Fewer denoising steps = faster inference, but may reduce action quality:
+
+```bash
+# Fast inference (2 steps)
+python scripts/deployment/standalone_inference_script.py \
+  --inference-mode tensorrt \
+  --trt-engine-path ./groot_n1d6_onnx/dit_model_bf16.trt \
+  --denoising-steps 2
+
+# Balanced (4 steps, recommended)
+python scripts/deployment/standalone_inference_script.py \
+  --inference-mode tensorrt \
+  --trt-engine-path ./groot_n1d6_onnx/dit_model_bf16.trt \
+  --denoising-steps 4
+
+# High quality (8 steps)
+python scripts/deployment/standalone_inference_script.py \
+  --inference-mode tensorrt \
+  --trt-engine-path ./groot_n1d6_onnx/dit_model_bf16.trt \
+  --denoising-steps 8
+```
+
+### Benchmark engine performance
+
+Measure TensorRT speedup on your hardware:
+
+```bash
+python scripts/deployment/benchmark_inference.py \
+  --model-path nvidia/GR00T-N1.6-3B \
+  --dataset-path demo_data/gr1.PickNPlace \
+  --embodiment-tag GR1 \
+  --trt-engine-path ./groot_n1d6_onnx/dit_model_bf16.trt \
+  --num-iterations 20 \
+  --warmup 5
+```
+
+Output includes component-wise timing:
+
+```
+=== TensorRT Benchmark ===
+Data Processing: 2 ms
+Backbone: 18 ms
+Action Head: 11 ms  (3.59x faster than eager)
+E2E: 31 ms  (1.86x faster than eager)
+Frequency: 32.1 Hz
+```
+
+## Platform-specific notes
+
+### Jetson platforms (Thor, Orin)
+
+<Note>
+Experiments on Thor used CUDA 13, PyTorch 2.9 from [Jetson AI Lab cu130 index](https://pypi.jetson-ai-lab.io/sbsa/cu130). Orin used CUDA 12.6, PyTorch 2.8 from [Jetson AI Lab cu126 index](https://pypi.jetson-ai-lab.io/jp6/cu126).
+</Note>
+
+Optimize workspace for embedded GPUs:
+
+```bash
+# Jetson Orin (64GB)
+python scripts/deployment/build_tensorrt_engine.py \
+  --onnx ./groot_n1d6_onnx/dit_model.onnx \
+  --engine ./groot_n1d6_onnx/dit_model_bf16.trt \
+  --precision bf16 \
+  --workspace 4096
+```
+
+### RTX 5090
+
+<Note>
+RTX 5090 tested with CUDA 12.8, flash-attn==2.8.0.post2, pytorch-cu128. Requires uv v0.8.4+.
+</Note>
+
+Leverage large VRAM for maximum workspace:
+
+```bash
+python scripts/deployment/build_tensorrt_engine.py \
+  --onnx ./groot_n1d6_onnx/dit_model.onnx \
+  --engine ./groot_n1d6_onnx/dit_model_bf16.trt \
+  --precision bf16 \
+  --workspace 16384
+```
+
+## Troubleshooting
+
+### Engine build fails
+
+**Symptoms:** Build crashes or fails during optimization
+
+**Solutions:**
+
+1. Reduce workspace size:
+   ```bash
+   --workspace 4096
+   ```
+
+2. Verify GPU memory:
+   ```bash
+   nvidia-smi
+   ```
+
+3. Check TensorRT version matches CUDA:
+   ```bash
+   python -c "import tensorrt; print(tensorrt.__version__)"
+   ```
+
+### ONNX export issues
+
+**Symptoms:** Export fails with shape mismatch errors
+
+**Solutions:**
+
+1. Verify model loads in PyTorch:
+   ```python
+   from gr00t.policy.gr00t_policy import Gr00tPolicy
+   policy = Gr00tPolicy(
+       embodiment_tag="GR1",
+       model_path="nvidia/GR00T-N1.6-3B"
+   )
+   ```
+
+2. Check dataset path contains valid trajectories:
+   ```bash
+   ls demo_data/gr1.PickNPlace/
+   ```
+
+### Engine not portable between GPUs
+
+<Warning>
+TensorRT engines are GPU-specific. An engine built on RTX 4090 will not work on H100. Rebuild the engine on each target platform.
+</Warning>
+
+**Solution:** Build separate engines for each GPU architecture:
+
+```bash
+# On RTX 4090
+python scripts/deployment/build_tensorrt_engine.py \
+  --onnx ./groot_n1d6_onnx/dit_model.onnx \
+  --engine ./engines/dit_model_rtx4090.trt \
+  --precision bf16
+
+# On H100  
+python scripts/deployment/build_tensorrt_engine.py \
+  --onnx ./groot_n1d6_onnx/dit_model.onnx \
+  --engine ./engines/dit_model_h100.trt \
+  --precision bf16
+```
+
+### Slow first inference
+
+**Symptoms:** First inference takes much longer than subsequent ones
+
+**Expected behavior:** TensorRT engines have warmup overhead
+
+**Solution:** Add warmup iterations:
+
+```bash
+python scripts/deployment/standalone_inference_script.py \
+  --inference-mode tensorrt \
+  --trt-engine-path ./groot_n1d6_onnx/dit_model_bf16.trt \
+  --skip-timing-steps 5  # Skip first 5 steps from timing
+```
+
+### Out of memory during build
+
+**Symptoms:** CUDA out of memory error during engine compilation
+
+**Solutions:**
+
+1. Reduce workspace:
+   ```bash
+   --workspace 2048
+   ```
+
+2. Close other GPU processes:
+   ```bash
+   nvidia-smi
+   kill <pid>
+   ```
+
+3. Use FP32 instead of FP16/BF16 (uses less memory during build):
+   ```bash
+   --precision fp32
+   ```
+
+## Architecture details
+
+TensorRT optimizes only the DiT action head:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    GR00T Policy                             │
+│  ┌───────────────┐  ┌───────────────┐  ┌─────────────────┐  │
+│  │ Vision Encoder│  │Language Model │  │  Action Head    │  │
+│  │(Cosmos-Reason)│──│(Cosmos-Reason)│──│    (DiT)        │  │
+│  └───────────────┘  └───────────────┘  └─────────────────┘  │
+│         │                  │                     ▲          │
+│         │                  │                     │          │
+│         └──────────────────┘           ┌─────────┴────────┐ │
+│          (PyTorch Eager)                │ TensorRT Engine  │ │
+│                                         │ (dit_model.trt)  │ │
+│                                         └──────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+```
+
+The backbone (vision encoder + language model) remains in PyTorch, while the action head runs in TensorRT for maximum performance.
+
+## Advanced configuration
+
+### Custom layer precision
+
+Override precision for specific layers (requires editing build script):
+
+```python
+import tensorrt as trt
+
+# In build_tensorrt_engine.py
+config.set_flag(trt.BuilderFlag.FP16)
+for layer in network:
+    if "attention" in layer.name:
+        layer.precision = trt.float32  # Force FP32 for attention layers
+```
+
+### DLA acceleration (Jetson)
+
+Offload layers to Deep Learning Accelerator on Jetson:
+
+```python
+config.default_device_type = trt.DeviceType.DLA
+config.DLA_core = 0
+```
+
+### Dynamic shapes
+
+For variable batch sizes or action horizons, configure dynamic shapes during export (requires code modification).

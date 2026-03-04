@@ -1,0 +1,143 @@
+---
+title: Open-loop evaluation
+description: Evaluate policy predictions against ground truth actions from recorded trajectories
+---
+
+The open-loop evaluation script (`gr00t/eval/open_loop_eval.py`) compares policy predictions against ground truth actions from demonstration datasets without actually executing the actions in an environment.
+
+## Usage
+
+```bash
+python gr00t/eval/open_loop_eval.py \
+  --dataset-path demo_data/cube_to_bowl_5/ \
+  --model-path checkpoints/checkpoint-1000 \
+  --traj-ids 0 1 2 \
+  --steps 200 \
+  --action-horizon 16
+```
+
+## Parameters
+
+<ParamField path="host" type="str" default="127.0.0.1">
+  Host to connect to when using policy server instead of local model.
+</ParamField>
+
+<ParamField path="port" type="int" default="5555">
+  Port to connect to when using policy server instead of local model.
+</ParamField>
+
+<ParamField path="steps" type="int" default="200">
+  Maximum number of steps to evaluate per trajectory. Will be capped by actual trajectory length.
+</ParamField>
+
+<ParamField path="traj-ids" type="list[int]" default="[0]">
+  List of trajectory IDs to evaluate from the dataset.
+  
+  Example: `--traj-ids 0 1 2 3` evaluates trajectories 0 through 3.
+</ParamField>
+
+<ParamField path="action-horizon" type="int" default="16">
+  Action horizon for policy inference. The policy predicts this many future actions at each step.
+</ParamField>
+
+<ParamField path="dataset-path" type="str" default="demo_data/cube_to_bowl_5/">
+  Path to the LeRobot format dataset containing demonstration trajectories.
+</ParamField>
+
+<ParamField path="embodiment-tag" type="EmbodimentTag" default="NEW_EMBODIMENT">
+  Embodiment tag identifying the robot configuration. See [embodiment tags](/core-concepts/embodiments) for available options.
+</ParamField>
+
+<ParamField path="model-path" type="str" default="None">
+  Path to the model checkpoint directory. If not provided, connects to policy server using `host` and `port`.
+  
+  Example: `checkpoints/checkpoint-1000`
+</ParamField>
+
+<ParamField path="denoising-steps" type="int" default="4">
+  Number of denoising steps to use during diffusion policy inference.
+</ParamField>
+
+<ParamField path="save-plot-path" type="str" default="None">
+  Path to save trajectory comparison plots. If not provided, saves to `/tmp/open_loop_eval/traj_{id}.jpeg`.
+</ParamField>
+
+<ParamField path="modality-keys" type="list[str]" default="None">
+  List of action modality keys to evaluate and plot. If None, evaluates all action keys in the dataset.
+  
+  Example: `--modality-keys joint_positions gripper`
+</ParamField>
+
+## Outputs
+
+The script outputs:
+
+- **MSE (Mean Squared Error)**: Unnormalized mean squared error between predicted and ground truth actions
+- **MAE (Mean Absolute Error)**: Unnormalized mean absolute error between predicted and ground truth actions
+- **Trajectory plots**: Visual comparison of state, ground truth actions, and predicted actions saved as JPEG files
+
+### Plot format
+
+Each plot shows:
+- State joints trajectory (if action space matches state space)
+- Ground truth actions from the demonstration
+- Predicted actions from the policy
+- Red dots indicating inference points (every `action-horizon` steps)
+
+## Example workflows
+
+### Evaluate with local model
+
+```bash
+python gr00t/eval/open_loop_eval.py \
+  --model-path checkpoints/checkpoint-5000 \
+  --dataset-path datasets/pick_place_demos \
+  --traj-ids 0 1 2 3 4 \
+  --steps 300 \
+  --action-horizon 16 \
+  --embodiment-tag GR1
+```
+
+### Evaluate with policy server
+
+```bash
+# First, start the policy server
+python gr00t/eval/run_gr00t_server.py \
+  --model-path checkpoints/checkpoint-5000 \
+  --port 5555
+
+# Then run evaluation
+python gr00t/eval/open_loop_eval.py \
+  --host 127.0.0.1 \
+  --port 5555 \
+  --dataset-path datasets/pick_place_demos \
+  --traj-ids 0 1 2
+```
+
+### Evaluate specific action modalities
+
+```bash
+python gr00t/eval/open_loop_eval.py \
+  --model-path checkpoints/checkpoint-5000 \
+  --dataset-path datasets/bimanual_demos \
+  --modality-keys left_arm_joints right_arm_joints \
+  --save-plot-path results/trajectory_comparison.jpeg
+```
+
+## Implementation details
+
+The evaluation process:
+
+1. Loads the dataset using `LeRobotEpisodeLoader`
+2. For each trajectory:
+   - Extracts observations at intervals of `action-horizon` steps
+   - Runs policy inference to predict action chunks
+   - Compares predicted actions against ground truth
+   - Computes MSE and MAE metrics
+   - Generates comparison plots
+
+3. Reports average metrics across all trajectories
+
+<Note>
+  Open-loop evaluation measures prediction accuracy but doesn't account for compounding errors that occur during closed-loop execution in simulation or on real robots.
+</Note>

@@ -1,0 +1,191 @@
+---
+title: Data preparation
+description: How to prepare robot demonstration data for GR00T training
+---
+
+This guide shows how to convert your robot data to work with the GR00T-flavored LeRobot dataset format. While GR00T adds additional structure, the schema maintains full compatibility with the upstream LeRobot v2 format.
+
+<Note>
+The TLDR: Add a `meta/modality.json` file to your LeRobot v2 dataset and follow the schema below.
+</Note>
+
+## LeRobot v2 requirements
+
+If you already have a dataset in the LeRobot v2 format, you can skip this section.
+
+If you have a dataset in the LeRobot v3.0 format, use the conversion script:
+
+```bash
+python scripts/lerobot_conversion/convert_v3_to_v2.py
+```
+
+If you have a dataset in another format, convert it to LeRobot v2 format satisfying the following requirements.
+
+### Structure requirements
+
+The folder should follow this structure:
+
+```
+.
+├─meta 
+│ ├─episodes.jsonl
+│ ├─modality.json      # GR00T LeRobot specific
+│ ├─info.json
+│ └─tasks.jsonl
+├─videos
+│ └─chunk-000
+│   └─observation.images.ego_view
+│     └─episode_000001.mp4
+│     └─episode_000000.mp4
+└─data
+  └─chunk-000
+    ├─episode_000001.parquet
+    └─episode_000000.parquet
+```
+
+### Video observations
+
+The videos folder contains the MP4 files associated with each episode.
+
+**Requirements:**
+- Must be stored as MP4 files
+- Should be named using the format: `observation.images.<video_name>`
+- Use `episode_00000X.mp4` naming where X indicates the episode number
+
+### Data files
+
+The data folder contains all of the parquet files associated with each episode.
+
+Each parquet file contains:
+- **State information**: stored as `observation.state` (1D concatenated array of all state modalities)
+- **Action**: stored as `action` (1D concatenated array of all action modalities)
+- **Timestamp**: stored as `timestamp` (float point number of the starting time)
+- **Annotations**: stored as `annotation.<annotation_source>.<annotation_type>(.<annotation_name>)`
+
+#### Example parquet file
+
+Here is a sample from the `cube_to_bowl` dataset:
+
+```json
+{
+    "observation.state": [-0.01147082911843003, ..., 0],
+    "action": [-0.010770668025204974, ..., 0],
+    "timestamp": 0.04999995231628418,
+    "annotation.human.action.task_description": 0,
+    "task_index": 0,
+    "annotation.human.validity": 1,
+    "episode_index": 0,
+    "index": 0,
+    "next.reward": 0,
+    "next.done": false
+}
+```
+
+### Meta files
+
+#### meta/tasks.jsonl
+
+Contains a list of all the tasks in the entire dataset:
+
+```json
+{"task_index": 0, "task": "pick the squash from the counter and place it in the plate"}
+{"task_index": 1, "task": "valid"}
+```
+
+You can refer to the task index in the parquet file to get the task description.
+
+#### meta/episodes.jsonl
+
+Contains a list of all the episodes in the entire dataset:
+
+```json
+{"episode_index": 0, "tasks": [...], "length": 416}
+{"episode_index": 1, "tasks": [...], "length": 470}
+```
+
+Each episode contains a list of tasks and the length of the episode.
+
+## GR00T LeRobot specific requirements
+
+### The meta/modality.json configuration
+
+GR00T requires an additional metadata file `meta/modality.json` that is not present in the standard LeRobot format. This file provides detailed metadata about state and action modalities, enabling:
+
+- **Separate data storage and interpretation**: State and action are stored as concatenated float32 arrays, with metadata to interpret them as distinct fields
+- **Video**: Stored as separate files, with the configuration allowing them to be renamed to a standardized format
+- **Annotations**: Keeps track of all annotation fields
+- **Fine-grained splitting**: Divides the state and action arrays into more semantically meaningful fields
+- **Clear mapping**: Explicit mapping of data dimensions
+- **Sophisticated data transformations**: Supports field-specific normalization and rotation transformations during training
+
+#### Schema
+
+```json
+{
+    "state": {
+        "<state_key>": {
+            "start": <int>,         // Starting index in the state array
+            "end": <int>            // Ending index in the state array
+        }
+    },
+    "action": {
+        "<action_key>": {
+            "start": <int>,         // Starting index in the action array
+            "end": <int>            // Ending index in the action array
+        }
+    },
+    "video": {
+        "<new_key>": {
+            "original_key": "<original_video_key>"
+        }
+    },
+    "annotation": {
+        "<annotation_key>": {}  // Empty dictionary to maintain consistency
+    }
+}
+```
+
+<Note>
+All indices are zero-based and follow Python's array slicing convention (`[start:end]`).
+</Note>
+
+#### Example modality.json
+
+```json
+{
+    "state": {
+        "single_arm": {"start": 0, "end": 5},
+        "gripper": {"start": 5, "end": 6}
+    },
+    "action": {
+        "single_arm": {"start": 0, "end": 5},
+        "gripper": {"start": 5, "end": 6}
+    },
+    "video": {
+        "front": {"original_key": "observation.images.front"},
+        "wrist": {"original_key": "observation.images.wrist"}
+    },
+    "annotation": {
+        "human.task_description": {
+            "original_key": "task_index"
+        }
+    }
+}
+```
+
+## GR00T LeRobot extensions to standard LeRobot
+
+GR00T LeRobot is a flavor of the standard LeRobot format with more opinionated requirements:
+
+- Computes `meta/stats.json` and `meta/relative_stats.json` for each dataset automatically
+- Proprioceptive states must always be included in the `observation.state` keys
+- Supports multi-channel annotation formats (e.g., coarse-grained, fine-tuned), allowing users to add as many annotation channels as needed via the `annotation.<annotation_source>.<annotation_type>` key
+- Requires the additional metadata file `meta/modality.json`
+
+### Multiple annotation support
+
+To support multiple annotations within a single parquet file, users may add extra columns to the parquet file. These columns should be treated the same way as the `task_index` column in the original LeRobot v2 dataset:
+
+In LeRobot v2, actual language descriptions are stored in a row of the `meta/tasks.jsonl` file, while the parquet file stores only the corresponding index in the `task_index` column. GR00T follows the same convention and stores the corresponding index for each annotation in the `annotation.<annotation_source>.<annotation_type>` column.
+
+Although the `task_index` column may still be used for the default annotation, a dedicated column `annotation.<annotation_source>.<annotation_type>` is required to ensure it is loadable by the custom data loader.

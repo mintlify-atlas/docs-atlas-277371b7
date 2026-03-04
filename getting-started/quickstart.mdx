@@ -1,0 +1,176 @@
+---
+title: Quick start
+description: Run inference with GR00T in minutes
+---
+
+Get started quickly by downloading a pre-trained checkpoint and running inference on the GR1 embodiment.
+
+## Prerequisites
+
+- GR00T installed (see [Installation](/getting-started/installation))
+- CUDA-enabled GPU
+- Internet connection to download model checkpoint
+
+## Start the policy server
+
+GR00T uses a server-client architecture for inference. Start the policy server with a pre-trained checkpoint:
+
+```bash
+uv run python gr00t/eval/run_gr00t_server.py \
+  --embodiment-tag GR1 \
+  --model-path nvidia/GR00T-N1.6-3B
+```
+
+The server will:
+- Download the `nvidia/GR00T-N1.6-3B` checkpoint from Hugging Face (if not already cached)
+- Load the model on GPU
+- Start listening on `localhost:5555` for inference requests
+
+<Note>
+On first run, the model checkpoint (approximately 6GB) will be downloaded from Hugging Face. Subsequent runs will use the cached version.
+</Note>
+
+## Run standalone inference
+
+Run inference on a sample dataset to verify everything works:
+
+```bash
+uv run python scripts/deployment/standalone_inference_script.py \
+  --model-path nvidia/GR00T-N1.6-3B \
+  --dataset-path demo_data/gr1.PickNPlace \
+  --embodiment-tag GR1 \
+  --traj-ids 0 1 2 \
+  --inference-mode pytorch \
+  --action-horizon 8
+```
+
+This script:
+- Loads the GR00T N1.6 3B parameter model
+- Runs inference on trajectories 0, 1, and 2 from the demo dataset
+- Uses PyTorch mode (no TensorRT acceleration)
+- Predicts 8 future action steps per inference call
+
+### Expected output
+
+You should see timing information similar to:
+
+```
+Data Processing: 2 ms
+Backbone: 18-25 ms
+Action Head: 16-38 ms
+End-to-End: 37-58 ms
+Frequency: 17-27 Hz
+```
+
+Actual timing depends on your GPU. See the [performance table](#inference-performance) below.
+
+## Inference performance
+
+GR00T N1.6 3B inference timing (4 denoising steps, single view):
+
+| Device | Mode | Data Processing | Backbone | Action Head | E2E | Frequency |
+|--------|------|-----------------|----------|-------------|-----|------------|
+| RTX 5090 | torch.compile | 2 ms | 18 ms | 16 ms | 37 ms | 27.3 Hz |
+| H100 | torch.compile | 4 ms | 23 ms | 11 ms | 38 ms | 26.3 Hz |
+| RTX 4090 | torch.compile | 2 ms | 25 ms | 17 ms | 44 ms | 22.8 Hz |
+| Thor | torch.compile | 5 ms | 39 ms | 61 ms | 105 ms | 9.5 Hz |
+
+<Note>
+For 2x faster inference, see [TensorRT optimization](/deployment/tensorrt-optimization).
+</Note>
+
+## Run zero-shot evaluation
+
+For a more complete example with simulation environments, try the RoboCasa GR1 tabletop tasks:
+
+<Steps>
+  <Step title="Start the policy server">
+    ```bash
+    uv run python gr00t/eval/run_gr00t_server.py \
+      --embodiment-tag GR1 \
+      --model-path nvidia/GR00T-N1.6-3B
+    ```
+  </Step>
+
+  <Step title="Run evaluation">
+    In a separate terminal, navigate to the RoboCasa example:
+
+    ```bash
+    cd examples/robocasa-gr1-tabletop-tasks
+    ```
+
+    Follow the instructions in `examples/robocasa-gr1-tabletop-tasks/README.md` for environment setup and evaluation.
+  </Step>
+</Steps>
+
+## Using the policy API
+
+To integrate GR00T into your own environment, use the Policy API:
+
+```python
+from gr00t.policy.server_client import PolicyClient
+
+# Connect to the policy server
+policy = PolicyClient(host="localhost", port=5555)
+
+# Verify connection
+if not policy.ping():
+    raise RuntimeError("Cannot connect to policy server!")
+
+# Create observation in the expected format
+observation = {
+    "video": {
+        "camera_name": video_array,  # Shape: (B, T, H, W, 3), dtype: uint8
+    },
+    "state": {
+        "state_name": state_array,   # Shape: (B, T, D), dtype: float32
+    },
+    "language": {
+        "task": [["pick up the apple"]],  # Shape: (B, 1)
+    }
+}
+
+# Get action from policy
+action, info = policy.get_action(observation)
+
+# Execute action in your environment
+env.step(action)
+```
+
+For detailed information on observation/action formats and policy integration, see the [Policy API guide](/core-concepts/policy-api).
+
+## Available pre-trained models
+
+### Base models
+
+| Model | Parameters | Use Case | Checkpoint |
+|-------|-----------|----------|------------|
+| GR00T N1.6 | 3B | Finetuning | [nvidia/GR00T-N1.6-3B](https://huggingface.co/nvidia/GR00T-N1.6-3B) |
+| GR00T N1.5 | 3B | Finetuning | [nvidia/GR00T-N1.5-3B](https://huggingface.co/nvidia/GR00T-N1.5-3B) |
+
+### Finetuned models
+
+| Model | Embodiment | Description | Checkpoint |
+|-------|-----------|-------------|------------|
+| GR00T-N1.6-bridge | WidowX | Bridge dataset manipulation tasks | [nvidia/GR00T-N1.6-bridge](https://huggingface.co/nvidia/GR00T-N1.6-bridge) |
+| GR00T-N1.6-fractal | Google Robot | Fractal dataset manipulation tasks | [nvidia/GR00T-N1.6-fractal](https://huggingface.co/nvidia/GR00T-N1.6-fractal) |
+| GR00T-N1.6-BEHAVIOR1k | Galaxea R1 Pro | BEHAVIOR-1K loco-manipulation | [nvidia/GR00T-N1.6-BEHAVIOR1k](https://huggingface.co/nvidia/GR00T-N1.6-BEHAVIOR1k) |
+| GR00T-N1.6-G1-PnPAppleToPlate | Unitree G1 | Loco-manipulation pick-and-place | [nvidia/GR00T-N1.6-G1-PnPAppleToPlate](https://huggingface.co/nvidia/GR00T-N1.6-G1-PnPAppleToPlate) |
+| GR00T-N1.6-DROID | DROID | DROID manipulation tasks | [nvidia/GR00T-N1.6-DROID](https://huggingface.co/nvidia/GR00T-N1.6-DROID) |
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Data preparation" icon="database" href="/core-concepts/data-preparation">
+    Prepare your robot data for training
+  </Card>
+  <Card title="Finetuning" icon="graduation-cap" href="/training/finetuning">
+    Finetune GR00T on your custom data
+  </Card>
+  <Card title="Policy API" icon="code" href="/core-concepts/policy-api">
+    Learn the Policy API for integration
+  </Card>
+  <Card title="Evaluation" icon="chart-line" href="/evaluation/overview">
+    Evaluate your trained models
+  </Card>
+</CardGroup>

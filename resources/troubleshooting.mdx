@@ -1,0 +1,412 @@
+---
+title: Troubleshooting
+description: Common issues and solutions for Isaac GR00T
+---
+
+This page covers common issues you might encounter when working with Isaac GR00T and their solutions.
+
+## Installation issues
+
+### CUDA version compatibility
+
+<Warning>
+CUDA 12.4 is recommended and officially tested. However, CUDA 11.8 has also been verified to work.
+</Warning>
+
+If you're using a different CUDA version:
+
+1. Make sure to install a compatible version of `flash-attn` manually
+2. For CUDA 11.8, `flash-attn==2.8.2` has been confirmed to work
+3. For RTX 5090, use CUDA 12.8 with `flash-attn==2.8.0.post2` and `pytorch-cu128`
+
+```bash
+# Example for CUDA 11.8
+uv pip install flash-attn==2.8.2
+```
+
+### UV version too old
+
+**Error**: `uv` fails to parse `[tool.uv.extra-build-dependencies]` in `pyproject.toml`
+
+**Solution**: Upgrade to uv v0.8.4 or later:
+
+```bash
+# Upgrade uv
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+### Submodules not initialized
+
+**Error**: Missing dependencies or import errors for submodule packages
+
+**Solution**: Initialize submodules if you didn't clone with `--recurse-submodules`:
+
+```bash
+git submodule update --init --recursive
+```
+
+## Docker issues
+
+### GPU not detected in container
+
+**Symptoms**: CUDA not available when running `nvidia-smi` inside the container
+
+**Solutions**:
+
+1. Verify NVIDIA Container Toolkit is installed:
+   ```bash
+   nvidia-container-toolkit --version
+   ```
+
+2. Restart Docker daemon:
+   ```bash
+   sudo systemctl restart docker
+   ```
+
+3. Test GPU access:
+   ```bash
+   docker run --rm --gpus all nvidia/cuda:12.0.0-base-ubuntu22.04 nvidia-smi
+   ```
+
+### Permission errors with Docker
+
+**Error**: Permission denied when running Docker commands
+
+**Solution**: Add your user to the `docker` group:
+
+```bash
+sudo usermod -aG docker $USER
+# Log out and log back in for changes to take effect
+```
+
+### Build failures
+
+**Symptoms**: Docker build fails with disk space or network errors
+
+**Solutions**:
+
+1. Check disk space:
+   ```bash
+   df -h
+   ```
+
+2. Clean Docker cache:
+   ```bash
+   docker system prune -a
+   ```
+
+3. Rebuild without cache:
+   ```bash
+   sudo bash build.sh --no-cache
+   ```
+
+## Policy and inference issues
+
+### RuntimeError: Cannot connect to policy server
+
+**Error**: `RuntimeError("Cannot connect to policy server!")`
+
+**Solutions**:
+
+1. Verify the server is running:
+   ```bash
+   # Check if port is listening
+   netstat -an | grep 5555
+   ```
+
+2. Check host and port match between server and client:
+   ```python
+   # Server
+   --host 0.0.0.0 --port 5555
+   
+   # Client
+   policy = PolicyClient(host="localhost", port=5555)
+   ```
+
+3. Try using IP address instead of hostname:
+   ```python
+   policy = PolicyClient(host="127.0.0.1", port=5555)
+   ```
+
+### Observation format mismatch
+
+**Error**: Shape or dtype errors when calling `policy.get_action()`
+
+**Solution**: Enable strict mode and check modality configs:
+
+```python
+# Enable validation during development
+policy = Gr00tPolicy(
+    model_path="/path/to/checkpoint",
+    embodiment_tag=EmbodimentTag.NEW_EMBODIMENT,
+    strict=True  # This will validate inputs/outputs
+)
+
+# Print expected formats
+modality_configs = policy.get_modality_config()
+
+# Check video requirements
+video_keys = modality_configs["video"].modality_keys
+video_horizon = len(modality_configs["video"].delta_indices)
+print(f"Expected cameras: {video_keys}")
+print(f"Video frames needed: {video_horizon}")
+
+# Check state requirements
+state_keys = modality_configs["state"].modality_keys
+state_horizon = len(modality_configs["state"].delta_indices)
+print(f"Expected states: {state_keys}, horizon: {state_horizon}")
+```
+
+<Tip>
+Use the `get_modality_config()` method to understand what observations your policy expects and what actions it produces.
+</Tip>
+
+### Data type errors
+
+**Error**: `TypeError: expected dtype uint8 but got float32` or similar
+
+**Solution**: Ensure correct data types:
+
+- **Videos** must be `np.uint8` arrays with RGB pixel values in range [0, 255]
+- **States** must be `np.float32` arrays
+- **Language** instructions are lists of lists of strings
+
+```python
+import numpy as np
+
+# Correct video format
+video = np.random.randint(0, 256, size=(1, T, H, W, 3), dtype=np.uint8)
+
+# Correct state format
+state = np.random.randn(1, T, D).astype(np.float32)
+
+# Correct language format
+language = [["pick up the cube"]]
+```
+
+### TensorRT errors
+
+**Error**: `RuntimeError: CUDA not available for TensorRT` or engine loading fails
+
+**Solutions**:
+
+1. Verify CUDA is available:
+   ```python
+   import torch
+   print(torch.cuda.is_available())
+   ```
+
+2. Check TensorRT installation:
+   ```bash
+   python -c "import tensorrt; print(tensorrt.__version__)"
+   ```
+
+3. Rebuild TensorRT engine if it was built on a different system:
+   ```bash
+   uv run python scripts/deployment/build_tensorrt_engine.py \
+     --onnx-path /path/to/model.onnx \
+     --output-path /path/to/engine.trt
+   ```
+
+## Training issues
+
+### Out of memory (OOM) errors
+
+**Symptoms**: CUDA out of memory during training
+
+**Solutions**:
+
+1. Reduce batch size:
+   ```bash
+   --global-batch-size 16  # instead of 32
+   ```
+
+2. Reduce dataloader workers:
+   ```bash
+   --dataloader-num-workers 2  # instead of 4
+   ```
+
+3. Optimize dataloading parameters:
+   ```bash
+   --num-shards-per-epoch 50 \
+   --shard-size 256 \
+   --dataloader-num-workers 2
+   ```
+
+4. Use gradient accumulation (if supported):
+   ```bash
+   --gradient-accumulation-steps 2
+   ```
+
+### Training variance
+
+**Issue**: Performance varies significantly between training runs with the same configuration
+
+<Note>
+Users may observe some variance in post-training results across runs, even when using the same configuration, seed, and dropout settings. In our experiments, we have observed performance differences as large as 5-6% between runs.
+</Note>
+
+This variance may be attributed to:
+- Non-deterministic operations in image augmentations
+- Stochastic components in the training pipeline
+- Hardware differences
+
+**Recommendations**:
+- Run multiple training runs and select the best checkpoint
+- Use validation metrics to track performance
+- Keep this inherent variance in mind when comparing to reported benchmarks
+
+### Slow dataloading
+
+**Issue**: Training is bottlenecked by data loading
+
+**Solutions**:
+
+1. Increase number of workers:
+   ```bash
+   --dataloader-num-workers 4  # or higher
+   ```
+
+2. Increase shard size for better IID sampling:
+   ```bash
+   --num-shards-per-epoch 100 \
+   --shard-size 512
+   ```
+
+3. Reduce episode sampling rate for more IID sampling:
+   ```bash
+   --episode-sampling-rate 0.05
+   ```
+
+## Simulation evaluation issues
+
+### EGL/GLX errors
+
+**Error**: Failed to initialize EGL or GLX libraries
+
+**Solution**: Ensure necessary graphics libraries are installed:
+
+```bash
+# Check if EGL/GLX libraries exist
+ldconfig -p | grep -i egl
+ldconfig -p | grep -i gl
+
+# Install if missing (Ubuntu/Debian)
+sudo apt-get update
+sudo apt-get install -y libegl1-mesa libegl1-mesa-dev libgl1-mesa-glx
+```
+
+### Environment prefix not found
+
+**Error**: `ValueError: Unknown environment prefix`
+
+**Solution**: Register your environment prefix in `gr00t/eval/sim/env_utils.py`:
+
+```python
+ENV_PREFIX_TO_EMBODIMENT_TAG = {
+    ...
+    "my_new_benchmark": EmbodimentTag.MY_ROBOT,
+}
+```
+
+<Note>
+The env_name prefix and the `EmbodimentTag` value are often different. For example, `libero_sim` maps to `EmbodimentTag.LIBERO_PANDA`.
+</Note>
+
+### Low success rate with ReplayPolicy
+
+**Issue**: Ground-truth action replay achieves low success rates
+
+**Possible causes**:
+- Environment reset state not matching the dataset
+- Observation preprocessing differences
+- Action space mismatches
+- Execution horizon mismatch
+
+**Solution**: Verify execution horizon matches:
+
+```bash
+# Server
+--execution-horizon 8
+
+# Client
+--n_action_steps 8
+```
+
+## Data preparation issues
+
+### Video decoding errors
+
+**Error**: `RuntimeError: Simulated decode error` or video file corruption
+
+**Solutions**:
+
+1. Verify video file integrity:
+   ```bash
+   ffprobe -v error /path/to/video.mp4
+   ```
+
+2. Re-encode video with compatible settings:
+   ```bash
+   ffmpeg -i input.mp4 -c:v libx264 -pix_fmt yuv420p output.mp4
+   ```
+
+3. Check video backend:
+   ```python
+   # Try different backends
+   from gr00t.utils.video_utils import read_frames
+   frames = read_frames("/path/to/video.mp4", backend="pyav")  # or "decord", "torchcodec"
+   ```
+
+### Dataset conversion issues
+
+**Error**: Missing episodes or incorrect data format after conversion
+
+**Solutions**:
+
+1. Verify source dataset structure:
+   ```bash
+   ls -R /path/to/source/dataset
+   ```
+
+2. Check conversion script output for errors:
+   ```bash
+   python scripts/lerobot_conversion/convert_v3_to_v2.py \
+     --input-dir /path/to/v3 \
+     --output-dir /path/to/v2 \
+     --verbose
+   ```
+
+3. Validate converted dataset:
+   ```python
+   from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
+   dataset = LeRobotDataset("/path/to/converted/dataset")
+   print(f"Number of episodes: {dataset.num_episodes}")
+   print(f"Total frames: {len(dataset)}")
+   ```
+
+## Getting help
+
+If you're still experiencing issues:
+
+1. **Check existing issues**: Search [GitHub issues](https://github.com/NVIDIA/Isaac-GR00T/issues) to see if your problem has been reported
+
+2. **Verify environment**: Run the verification script:
+   ```bash
+   python scripts/eval/check_sim_eval_ready.py
+   ```
+
+3. **Enable debug logging**: Add verbose flags to scripts:
+   ```bash
+   --verbose  # or set logging level to DEBUG
+   ```
+
+4. **Report a bug**: If you've found a new issue, [open a GitHub issue](https://github.com/NVIDIA/Isaac-GR00T/issues/new) with:
+   - Clear description of the problem
+   - Steps to reproduce
+   - Error messages and stack traces
+   - Environment information (CUDA version, GPU model, OS, etc.)
+
+<Tip>
+When reporting issues, include the output of `nvidia-smi` and your CUDA/PyTorch versions to help maintainers diagnose the problem.
+</Tip>

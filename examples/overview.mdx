@@ -1,0 +1,103 @@
+---
+title: Benchmarks and examples
+description: Overview of available benchmarks and example implementations for Isaac GR00T
+---
+
+This section provides comprehensive examples and benchmarks for evaluating and fine-tuning GR00T models across various robotic tasks and embodiments.
+
+## Available benchmarks
+
+<CardGroup cols={3}>
+  <Card title="LIBERO" icon="robot" href="/examples/libero">
+    Lifelong robot learning benchmark with spatial reasoning, object generalization, and long-horizon tasks
+  </Card>
+  
+  <Card title="SimplerEnv" icon="cube" href="/examples/simplerenv">
+    Real-world robot manipulation policy evaluation framework with GPU-accelerated simulations
+  </Card>
+  
+  <Card title="BEHAVIOR" icon="house" href="/examples/behavior">
+    50 household tasks testing loco-manipulation capabilities with Galaxea R1 Pro
+  </Card>
+  
+  <Card title="RoboCasa" icon="kitchen-set" href="/examples/robocasa">
+    Large-scale kitchen simulation with 2,500+ 3D assets and 100 diverse manipulation tasks
+  </Card>
+  
+  <Card title="G1 locomanipulation" icon="person-walking" href="/examples/g1-locomanipulation">
+    Whole-body control tasks for Unitree G1 humanoid robot
+  </Card>
+  
+  <Card title="DROID" icon="microchip" href="/examples/droid">
+    Real-world manipulation tasks using the DROID dataset
+  </Card>
+  
+  <Card title="PointNav" icon="location-dot" href="/examples/pointnav">
+    Point navigation tasks with COMPASS-generated datasets
+  </Card>
+  
+  <Card title="SO-100" icon="hand" href="/examples/so100">
+    Teleoperation and deployment for SO-100 robot arms
+  </Card>
+</CardGroup>
+
+## Evaluation approach
+
+GR00T supports a two-stage evaluation workflow:
+
+### Open-loop evaluation
+
+Offline assessment comparing predicted actions against ground truth data from your dataset. This provides quick validation of model accuracy:
+
+```bash
+uv run python gr00t/eval/open_loop_eval.py \
+    --dataset-path <DATASET_PATH> \
+    --embodiment-tag <EMBODIMENT_TAG> \
+    --model-path <CHECKPOINT_PATH> \
+    --traj-ids 0 \
+    --action-horizon 16
+```
+
+### Closed-loop evaluation
+
+Testing in simulation environments using a server-client architecture:
+
+**Server (GPU machine):**
+```bash
+uv run python gr00t/eval/run_gr00t_server.py \
+    --embodiment-tag <EMBODIMENT_TAG> \
+    --model-path <CHECKPOINT_PATH> \
+    --use-sim-policy-wrapper
+```
+
+**Client (simulation environment):**
+```bash
+uv run python gr00t/eval/rollout_policy.py \
+    --n_episodes 10 \
+    --policy_client_host 127.0.0.1 \
+    --policy_client_port 5555 \
+    --env_name <ENV_NAME> \
+    --n_action_steps 8
+```
+
+## Pre-registered embodiments
+
+GR00T provides several pre-registered embodiment tags with ready-to-use configurations:
+
+- `LIBERO_PANDA` - Franka Emika Panda for LIBERO tasks
+- `OXE_GOOGLE` - Google Robot for manipulation
+- `OXE_WIDOWX` - WidowX robot for Bridge dataset
+- `UNITREE_G1` - Unitree G1 humanoid for loco-manipulation
+- `BEHAVIOR_R1_PRO` - Galaxea R1 Pro for household tasks
+- `ROBOCASA_PANDA_OMRON` - Panda with Omron gripper for kitchen tasks
+- `OXE_DROID` - DROID dataset embodiment
+
+## Training variance
+
+<Note>
+You may observe performance variance of 5-6% between training runs, even with identical configurations and seeds. This is due to non-deterministic operations in image augmentations and other stochastic components. Keep this inherent variance in mind when comparing to reported benchmarks.
+</Note>
+
+## Getting started
+
+Select a benchmark from the cards above to view detailed setup instructions, fine-tuning commands, evaluation procedures, and reported results.

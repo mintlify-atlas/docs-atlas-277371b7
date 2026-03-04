@@ -1,0 +1,261 @@
+---
+title: Gr00tPolicy
+description: Core policy class for GR00T model inference
+---
+
+## Overview
+
+The `Gr00tPolicy` class handles end-to-end inference with GR00T models. It loads a pre-trained vision-language-action model, processes observations, and generates robot actions.
+
+## Class definition
+
+```python gr00t/policy/gr00t_policy.py
+class Gr00tPolicy(BasePolicy):
+    """Core policy class for Gr00t model inference.
+    
+    This policy handles the end-to-end inference pipeline:
+    1. Validates input observations
+    2. Processes observations with pretrained VLA processor
+    3. Runs model inference
+    4. Decodes and returns actions
+    """
+```
+
+## Constructor
+
+<ParamField path="embodiment_tag" type="EmbodimentTag" required>
+  The embodiment tag defining the robot/environment type (e.g., `EmbodimentTag.GR1`, `EmbodimentTag.UNITREE_G1`)
+</ParamField>
+
+<ParamField path="model_path" type="str" required>
+  Path to the pretrained model checkpoint directory or HuggingFace model ID (e.g., `"nvidia/GR00T-N1.6-3B"`)
+</ParamField>
+
+<ParamField path="device" type="int | str" required>
+  Device to run the model on (e.g., `'cuda:0'`, `0`, `'cpu'`)
+</ParamField>
+
+<ParamField path="strict" type="bool" default="True">
+  Whether to enforce strict input validation
+</ParamField>
+
+## Methods
+
+### get_action
+
+Generate actions from observations.
+
+```python
+def get_action(
+    self, 
+    observation: dict[str, Any], 
+    options: dict[str, Any] | None = None
+) -> tuple[dict[str, Any], dict[str, Any]]
+```
+
+<ParamField path="observation" type="dict[str, Any]" required>
+  Observation dictionary with the following structure:
+  - `video`: dict[str, np.ndarray[np.uint8, (B, T, H, W, C)]]
+  - `state`: dict[str, np.ndarray[np.float32, (B, T, D)]]
+  - `language`: dict[str, list[list[str]]]
+</ParamField>
+
+<ParamField path="options" type="dict[str, Any] | None">
+  Optional parameters (currently unused)
+</ParamField>
+
+<ResponseField name="actions" type="dict[str, np.ndarray]">
+  Dictionary of action arrays with shape (B, T, D) where:
+  - B: batch size
+  - T: action horizon
+  - D: action dimension
+</ResponseField>
+
+<ResponseField name="info" type="dict[str, Any]">
+  Additional information dictionary (currently empty)
+</ResponseField>
+
+### get_modality_config
+
+Get the modality configuration for the current embodiment.
+
+```python
+def get_modality_config(self) -> dict[str, ModalityConfig]
+```
+
+<ResponseField name="modality_configs" type="dict[str, ModalityConfig]">
+  Dictionary mapping modality names (`"video"`, `"state"`, `"action"`, `"language"`) to their configurations
+</ResponseField>
+
+### reset
+
+Reset the policy to its initial state.
+
+```python
+def reset(self, options: dict[str, Any] | None = None) -> dict[str, Any]
+```
+
+<ParamField path="options" type="dict[str, Any] | None">
+  Optional reset parameters
+</ParamField>
+
+<ResponseField name="info" type="dict[str, Any]">
+  Information dictionary after reset (currently empty)
+</ResponseField>
+
+### check_observation
+
+Validate observation structure and types.
+
+```python
+def check_observation(self, observation: dict[str, Any]) -> None
+```
+
+<ParamField path="observation" type="dict[str, Any]" required>
+  Observation to validate
+</ParamField>
+
+<Note>
+  This method raises `AssertionError` if validation fails. It checks:
+  - All required modalities are present (`video`, `state`, `language`)
+  - Data types match expectations (uint8 for video, float32 for state)
+  - Shapes match the modality configuration
+  - Temporal dimensions are consistent
+</Note>
+
+### check_action
+
+Validate action structure and types.
+
+```python
+def check_action(self, action: dict[str, Any]) -> None
+```
+
+<ParamField path="action" type="dict[str, Any]" required>
+  Action dictionary to validate
+</ParamField>
+
+## Usage example
+
+```python
+from gr00t.policy.gr00t_policy import Gr00tPolicy
+from gr00t.data.embodiment_tags import EmbodimentTag
+import numpy as np
+
+# Initialize policy
+policy = Gr00tPolicy(
+    embodiment_tag=EmbodimentTag.GR1,
+    model_path="nvidia/GR00T-N1.6-3B",
+    device="cuda:0",
+    strict=True
+)
+
+# Get modality configuration
+modality_configs = policy.get_modality_config()
+video_config = modality_configs["video"]
+state_config = modality_configs["state"]
+
+# Prepare observation
+observation = {
+    "video": {
+        "head_camera": np.zeros((1, 1, 224, 224, 3), dtype=np.uint8),
+    },
+    "state": {
+        "joint_positions": np.zeros((1, 1, 14), dtype=np.float32),
+    },
+    "language": {
+        "task": [["pick up the apple"]]
+    }
+}
+
+# Generate action
+action, info = policy.get_action(observation)
+print(f"Action shape: {action['joint_positions'].shape}")
+# Output: Action shape: (1, 8, 14)
+```
+
+## Observation format
+
+The policy expects observations in the following nested dictionary format:
+
+```python
+observation = {
+    "video": {
+        "camera_name": np.ndarray[np.uint8, (B, T, H, W, C)],
+        # ... more cameras
+    },
+    "state": {
+        "state_name": np.ndarray[np.float32, (B, T, D)],
+        # ... more states
+    },
+    "language": {
+        "task": [["instruction string"]],  # Shape: (B, T)
+    }
+}
+```
+
+Where:
+- `B`: Batch size
+- `T`: Temporal horizon (number of frames/timesteps)
+- `H`, `W`: Image height and width
+- `C`: Number of channels (must be 3 for RGB)
+- `D`: State dimension
+
+## Action format
+
+Actions are returned in a similar nested format:
+
+```python
+action = {
+    "action_name": np.ndarray[np.float32, (B, T, D)],
+    # ... more actions
+}
+```
+
+Where:
+- `B`: Batch size
+- `T`: Action horizon (number of future timesteps)
+- `D`: Action dimension
+
+## Properties
+
+<ResponseField name="model" type="Gr00tN1d6">
+  The loaded GR00T model in evaluation mode with bfloat16 precision
+</ResponseField>
+
+<ResponseField name="processor" type="BaseProcessor">
+  The processor for input/output transformation
+</ResponseField>
+
+<ResponseField name="embodiment_tag" type="EmbodimentTag">
+  The embodiment tag for this policy
+</ResponseField>
+
+<ResponseField name="modality_configs" type="dict[str, ModalityConfig]">
+  Modality configurations for the current embodiment
+</ResponseField>
+
+<ResponseField name="collate_fn" type="Callable">
+  Collation function for batching observations
+</ResponseField>
+
+<ResponseField name="language_key" type="str">
+  The language modality key (currently only one is supported)
+</ResponseField>
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="Gr00tSimPolicyWrapper" icon="wrapper" href="/api/policy/policy-wrapper">
+    Wrapper for GR00T simulation environments
+  </Card>
+  <Card title="PolicyClient" icon="network-wired" href="/api/policy/server-client">
+    Client for remote inference
+  </Card>
+  <Card title="Policy API guide" icon="book" href="/guides/policy-api">
+    Complete guide to using the policy API
+  </Card>
+  <Card title="EmbodimentTag" icon="robot" href="/api/data/embodiment-tags">
+    Available embodiment tags
+  </Card>
+</CardGroup>

@@ -1,0 +1,129 @@
+---
+title: SO-100 benchmark
+description: Fine-tuning and deployment for SO-100 robot arms
+---
+
+This guide shows how to fine-tune GR00T on datasets collected from the [SO-100](https://huggingface.co/docs/lerobot/en/so101) robot and deploy the model on real hardware.
+
+## Dataset
+
+### Data collection
+
+To collect datasets via teleoperation, refer to the official LeRobot documentation:
+
+[SO-100 teleoperation guide](https://huggingface.co/docs/lerobot/il_robots?teleoperate_so101=Command)
+
+### Example dataset
+
+**Dataset:** [izuluaga/finish_sandwich](https://huggingface.co/datasets/izuluaga/finish_sandwich)
+
+Visualize the dataset: [Dataset viewer](https://huggingface.co/spaces/lerobot/visualize_dataset?path=%2Fizuluaga%2Ffinish_sandwich%2Fepisode_0)
+
+## Preparation
+
+<Steps>
+  <Step title="Convert dataset format">
+    Convert from LeRobot v3 to v2 format:
+    ```bash
+    uv run python scripts/lerobot_conversion/convert_v3_to_v2.py \
+        --repo-id izuluaga/finish_sandwich \
+        --root examples/SO100/finish_sandwich_lerobot
+    ```
+  </Step>
+  
+  <Step title="Copy modality configuration">
+    ```bash
+    cp modality.json examples/SO100/finish_sandwich_lerobot/meta/modality.json
+    ```
+  </Step>
+</Steps>
+
+## Fine-tuning
+
+Run the fine-tuning script using absolute joint positions:
+
+```bash
+uv run bash examples/SO100/finetune_so100.sh
+```
+
+<Note>
+Feel free to experiment with relative joint positions by modifying the action modality configuration in `modality.json`.
+</Note>
+
+## Evaluation
+
+### Open-loop evaluation
+
+Evaluate the fine-tuned model against ground truth trajectories:
+
+```bash
+uv run python gr00t/eval/open_loop_eval.py \
+    --dataset-path examples/SO100/finish_sandwich_lerobot \
+    --embodiment-tag NEW_EMBODIMENT \
+    --model-path /tmp/so100_finetune/checkpoint-10000 \
+    --traj-ids 0 \
+    --action-horizon 16 \
+    --steps 400
+```
+
+This generates visualizations comparing predicted actions against ground truth:
+
+<img src="/media/open_loop_eval_so100.png" alt="Open-loop evaluation results" />
+
+### Closed-loop evaluation (real robot)
+
+For deploying on real SO-100 hardware, see [eval_so100.py](../../gr00t/eval/real_robot/SO100/eval_so100.py) for Policy API usage.
+
+<Steps>
+  <Step title="Setup client dependencies">
+    ```bash
+    cd gr00t/eval/real_robot/SO100
+    uv venv
+    source .venv/bin/activate
+    uv pip install -e . --verbose
+    uv pip install --no-deps -e ../../../../
+    ```
+  </Step>
+  
+  <Step title="Start policy server">
+    In Terminal 1:
+    ```bash
+    uv run python gr00t/eval/run_gr00t_server.py \
+        --model-path /tmp/so100_finetune/checkpoint-10000 \
+        --embodiment-tag NEW_EMBODIMENT
+    ```
+  </Step>
+  
+  <Step title="Run evaluation client">
+    In Terminal 2:
+    ```bash
+    uv run python gr00t/eval/real_robot/SO100/eval_so100.py \
+        --robot.type=so101_follower \
+        --robot.port=/dev/ttyACM2 \
+        --robot.id=orange_follower \
+        --robot.cameras="{ wrist: {type: opencv, index_or_path: 2, width: 640, height: 480, fps: 30}, front: {type: opencv, index_or_path: 6, width: 640, height: 480, fps: 30}}" \
+        --policy_host=localhost \
+        --policy_port=5555 \
+        --lang_instruction="cube into green bowl"
+    ```
+  </Step>
+</Steps>
+
+## Hardware configuration
+
+When deploying on real hardware, ensure:
+
+- Correct USB port for robot connection (`/dev/ttyACM*`)
+- Camera indices match your hardware setup
+- Camera resolution and FPS are compatible with your cameras
+- Robot ID matches your configured follower arm
+
+<Warning>
+Always test in a safe environment with emergency stop capabilities before running autonomous manipulation tasks.
+</Warning>
+
+## Additional resources
+
+- [LeRobot SO-100 documentation](https://huggingface.co/docs/lerobot/en/so101)
+- [Policy API guide](/getting-started/policy) - Understanding the policy interface
+- [Fine-tune new embodiment](/getting-started/finetune-new-embodiment) - Custom robot configuration

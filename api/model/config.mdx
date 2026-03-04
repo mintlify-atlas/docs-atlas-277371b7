@@ -1,0 +1,388 @@
+---
+title: "Model configuration"
+description: "Configuration classes for GR00T models including backbone and action head settings"
+---
+
+## Gr00tN1d6Config
+
+Unified configuration dataclass for the Gr00tN1d6 model, combining backbone and action head parameters.
+
+```python
+from gr00t.configs.model.gr00t_n1d6 import Gr00tN1d6Config
+
+config = Gr00tN1d6Config(
+    model_name="nvidia/Eagle-Block2A-2B-v2",
+    action_horizon=16,
+    max_action_dim=29,
+    max_state_dim=29,
+    tune_llm=False,
+    tune_visual=False,
+    tune_projector=True,
+    tune_diffusion_model=True,
+)
+```
+
+### Model identification
+
+<ParamField path="model_type" type="str" default="'Gr00tN1d6'">
+  HuggingFace model type identifier
+</ParamField>
+
+<ParamField path="model_dtype" type="str" default="'bfloat16'">
+  Model data type (use bfloat16 for Flash Attention compatibility)
+</ParamField>
+
+### Backbone configuration
+
+<ParamField path="model_name" type="str" default="'nvidia/Eagle-Block2A-2B-v2'">
+  HuggingFace model name or path for the vision-language backbone
+</ParamField>
+
+<ParamField path="backbone_model_type" type="str" default="'eagle'">
+  Type of backbone model architecture
+</ParamField>
+
+<ParamField path="model_revision" type="str | None" default="None">
+  Specific model revision to use from HuggingFace Hub
+</ParamField>
+
+<ParamField path="backbone_embedding_dim" type="int" default="2048">
+  Dimension of backbone output embeddings (project_to_dim)
+</ParamField>
+
+<ParamField path="tune_llm" type="bool" default="False">
+  Whether to fine-tune the LLM component of the backbone
+</ParamField>
+
+<ParamField path="tune_visual" type="bool" default="False">
+  Whether to fine-tune the visual encoder of the backbone
+</ParamField>
+
+<ParamField path="tune_top_llm_layers" type="int" default="4">
+  Number of top LLM layers to tune (when tune_llm is True)
+</ParamField>
+
+<ParamField path="select_layer" type="int" default="16">
+  Which layer to extract features from in the backbone
+</ParamField>
+
+<ParamField path="reproject_vision" type="bool" default="False">
+  Whether to reproject vision features to a different dimension
+</ParamField>
+
+<ParamField path="use_flash_attention" type="bool" default="True">
+  Enable Flash Attention for efficient attention computation
+</ParamField>
+
+<ParamField path="load_bf16" type="bool" default="True">
+  Load backbone weights in bfloat16 precision
+</ParamField>
+
+<ParamField path="backbone_trainable_params_fp32" type="bool" default="True">
+  Keep trainable backbone parameters in FP32 for numerical stability
+</ParamField>
+
+<ParamField path="eagle_collator" type="bool" default="False">
+  Use Eagle-specific collator that allows dynamic image size changes (needed for any-resolution)
+</ParamField>
+
+### Processing parameters
+
+<ParamField path="image_crop_size" type="tuple[int, int] | None" default="None">
+  Target crop size for images (height, width)
+</ParamField>
+
+<ParamField path="image_target_size" type="tuple[int, int] | None" default="None">
+  Target resize for images before cropping (height, width)
+</ParamField>
+
+<ParamField path="shortest_image_edge" type="int | None" default="256">
+  Resize shortest edge of image to this size
+</ParamField>
+
+<ParamField path="crop_fraction" type="float | None" default="0.95">
+  Fraction of image to keep when center cropping
+</ParamField>
+
+<ParamField path="random_rotation_angle" type="int | None" default="None">
+  Maximum rotation angle (in degrees) for data augmentation
+</ParamField>
+
+<ParamField path="color_jitter_params" type="dict[str, float] | None" default="None">
+  Parameters for color jitter augmentation (brightness, contrast, saturation, hue)
+</ParamField>
+
+<ParamField path="use_albumentations_transforms" type="bool" default="True">
+  Use Albumentations library for image augmentation (vs torchvision)
+</ParamField>
+
+<ParamField path="formalize_language" type="bool" default="True">
+  Lowercase and remove punctuation from language instructions
+</ParamField>
+
+<ParamField path="apply_sincos_state_encoding" type="bool" default="False">
+  Apply sin/cos encoding to state features per-embodiment
+</ParamField>
+
+<ParamField path="use_relative_action" type="bool" default="False">
+  Use relative actions instead of absolute actions
+</ParamField>
+
+### Action head dimensions
+
+<ParamField path="max_state_dim" type="int" default="29">
+  Maximum state dimension across all embodiments (for padding)
+</ParamField>
+
+<ParamField path="max_action_dim" type="int" default="29">
+  Maximum action dimension across all embodiments (for padding)
+</ParamField>
+
+<ParamField path="action_horizon" type="int" default="16">
+  Number of future action steps to predict
+</ParamField>
+
+<ParamField path="hidden_size" type="int" default="1024">
+  Hidden dimension for action head MLPs
+</ParamField>
+
+<ParamField path="input_embedding_dim" type="int" default="1536">
+  Embedding dimension for state and action inputs to DiT
+</ParamField>
+
+### Diffusion model architecture
+
+<ParamField path="use_alternate_vl_dit" type="bool" default="True">
+  Use AlternateVLDiT (True) or standard DiT (False)
+</ParamField>
+
+<ParamField path="attend_text_every_n_blocks" type="int" default="2">
+  Attend to text features every N transformer blocks (for AlternateVLDiT)
+</ParamField>
+
+<ParamField path="diffusion_model_cfg" type="dict">
+  Configuration for the DiT transformer:
+  - `positional_embeddings`: Type of positional embeddings (None for learned)
+  - `num_layers`: Number of transformer layers (32 for N1D6)
+  - `num_attention_heads`: Number of attention heads (32)
+  - `attention_head_dim`: Dimension per attention head (48)
+  - `norm_type`: Normalization type ("ada_norm" for adaptive layer norm)
+  - `dropout`: Dropout probability (0.2)
+  - `final_dropout`: Apply dropout before final layer (True)
+  - `output_dim`: Output dimension (1024)
+  - `interleave_self_attention`: Interleave self-attention and cross-attention (True)
+</ParamField>
+
+**Default diffusion_model_cfg:**
+
+```python
+{
+    "positional_embeddings": None,
+    "num_layers": 32,
+    "num_attention_heads": 32,
+    "attention_head_dim": 48,
+    "norm_type": "ada_norm",
+    "dropout": 0.2,
+    "final_dropout": True,
+    "output_dim": 1024,
+    "interleave_self_attention": True,
+}
+```
+
+### Global architecture parameters
+
+<ParamField path="add_pos_embed" type="bool" default="True">
+  Add learned positional embeddings to action sequences
+</ParamField>
+
+<ParamField path="attn_dropout" type="float" default="0.2">
+  Dropout probability for attention layers
+</ParamField>
+
+<ParamField path="use_vlln" type="bool" default="True">
+  Apply layer normalization to vision-language features
+</ParamField>
+
+<ParamField path="max_seq_len" type="int" default="1024">
+  Maximum sequence length for positional embeddings
+</ParamField>
+
+### Flow matching parameters
+
+<ParamField path="num_inference_timesteps" type="int" default="4">
+  Number of denoising steps during inference
+</ParamField>
+
+<ParamField path="noise_beta_alpha" type="float" default="1.5">
+  Alpha parameter for Beta distribution noise schedule
+</ParamField>
+
+<ParamField path="noise_beta_beta" type="float" default="1.0">
+  Beta parameter for Beta distribution noise schedule
+</ParamField>
+
+<ParamField path="noise_s" type="float" default="0.999">
+  Noise scaling factor: `t = (1 - beta_sample) * noise_s`
+</ParamField>
+
+<ParamField path="num_timestep_buckets" type="int" default="1000">
+  Number of discrete timestep buckets for diffusion
+</ParamField>
+
+### Training parameters
+
+<ParamField path="tune_projector" type="bool" default="True">
+  Fine-tune state encoder, action encoder, and action decoder
+</ParamField>
+
+<ParamField path="tune_diffusion_model" type="bool" default="True">
+  Fine-tune the DiT transformer in the action head
+</ParamField>
+
+<ParamField path="tune_vlln" type="bool" default="True">
+  Fine-tune the vision-language layer normalization
+</ParamField>
+
+<ParamField path="state_dropout_prob" type="float" default="0.0">
+  Probability of dropping out state features during training
+</ParamField>
+
+<ParamField path="state_additive_noise_scale" type="float" default="0.0">
+  Scale of additive Gaussian noise on state features during training
+</ParamField>
+
+### Multi-embodiment parameters
+
+<ParamField path="max_num_embodiments" type="int" default="32">
+  Maximum number of embodiments the model can support
+</ParamField>
+
+### Methods
+
+#### to_filtered_dict
+
+Return a dictionary representation, optionally excluding augmentation parameters.
+
+```python
+def to_filtered_dict(self, exclude_augment: bool = True) -> dict
+```
+
+<ParamField path="exclude_augment" type="bool" default="True">
+  Whether to exclude augmentation-related keys from the dictionary
+</ParamField>
+
+<ResponseField name="return" type="dict">
+  Dictionary representation of the configuration
+</ResponseField>
+
+**Example:**
+
+```python
+config = Gr00tN1d6Config()
+config_dict = config.to_filtered_dict(exclude_augment=True)
+```
+
+#### to_filtered_json
+
+Return a JSON string representation, optionally excluding augmentation parameters.
+
+```python
+def to_filtered_json(self, exclude_augment: bool = True, **kwargs) -> str
+```
+
+<ParamField path="exclude_augment" type="bool" default="True">
+  Whether to exclude augmentation-related keys from the JSON
+</ParamField>
+
+<ParamField path="**kwargs" type="dict">
+  Additional arguments passed to `json.dumps()`
+</ParamField>
+
+<ResponseField name="return" type="str">
+  JSON string representation of the configuration
+</ResponseField>
+
+**Example:**
+
+```python
+config = Gr00tN1d6Config()
+json_str = config.to_filtered_json(exclude_augment=True, indent=2)
+print(json_str)
+```
+
+## Configuration from YAML
+
+Configurations are typically loaded from YAML files during training:
+
+```yaml
+model:
+  model_type: "GrootN1d6"
+  model_name: "nvidia/Eagle-Block2A-2B-v2"
+  
+  # Backbone settings
+  tune_llm: false
+  tune_visual: false
+  tune_top_llm_layers: 4
+  use_flash_attention: true
+  
+  # Action head settings
+  action_horizon: 16
+  max_action_dim: 29
+  max_state_dim: 29
+  tune_projector: true
+  tune_diffusion_model: true
+  
+  # Flow matching
+  num_inference_timesteps: 4
+  noise_beta_alpha: 1.5
+  noise_beta_beta: 1.0
+  
+  # Augmentation
+  use_albumentations_transforms: true
+  shortest_image_edge: 256
+  crop_fraction: 0.95
+```
+
+## Model registration
+
+The configuration is automatically registered with the model registry:
+
+```python
+from gr00t.configs.model import register_model_config
+from gr00t.configs.model.gr00t_n1d6 import Gr00tN1d6Config
+
+register_model_config("GrootN1d6", Gr00tN1d6Config)
+```
+
+## Saving and loading
+
+Configurations are automatically saved during training:
+
+```python
+# During training setup
+with open(save_cfg_dir / "final_model_config.json", "w") as f:
+    f.write(model.config.to_filtered_json())
+
+# Loading from checkpoint
+from transformers import AutoConfig
+
+config = AutoConfig.from_pretrained("path/to/checkpoint")
+```
+
+## Backward compatibility
+
+The config includes backward compatibility for legacy arguments:
+
+```python
+# Legacy argument (deprecated)
+config = Gr00tN1d6Config(collator_overwrite_image_inputs=True)
+
+# Automatically mapped to:
+config.eagle_collator == True
+```
+
+## See also
+
+- [GR00T model class](/api/model/gr00t-model) - Main model class using this configuration
+- [Training configuration](/api/training/config) - Training-specific configuration
+- [Data configuration](/api/data/config) - Data loading and processing configuration

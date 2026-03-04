@@ -1,0 +1,457 @@
+---
+title: Dataset classes
+description: Dataset classes for loading and processing VLA training data
+---
+
+The dataset module provides classes for loading, sharding, and mixing multi-modal robotics datasets.
+
+## ShardedDataset
+
+```python
+from gr00t.data.interfaces import ShardedDataset
+```
+
+Abstract base class for sharded datasets.
+
+### Constructor
+
+<ParamField path="dataset_path" type="str" required>
+  Path to the dataset directory.
+</ParamField>
+
+### Methods
+
+#### \_\_len\_\_
+
+```python
+def __len__(self) -> int
+```
+
+Return the number of shards in the dataset.
+
+#### get_shard_length
+
+```python
+def get_shard_length(self, idx: int) -> int
+```
+
+Get the number of samples in a specific shard.
+
+<ParamField path="idx" type="int" required>
+  Shard index.
+</ParamField>
+
+#### get_shard
+
+```python
+def get_shard(self, idx: int) -> list
+```
+
+Load and return all samples from a specific shard.
+
+<ParamField path="idx" type="int" required>
+  Shard index to load.
+</ParamField>
+
+#### set_processor
+
+```python
+def set_processor(self, processor: BaseProcessor) -> None
+```
+
+Set the data processor for this dataset.
+
+<ParamField path="processor" type="BaseProcessor" required>
+  Processor instance to use for data processing.
+</ParamField>
+
+#### get_dataset_statistics
+
+```python
+def get_dataset_statistics(self) -> dict[str, Any]
+```
+
+Get dataset statistics for normalization.
+
+<ResponseField name="return" type="dict[str, Any]">
+  Dictionary containing statistics for each modality and joint group.
+</ResponseField>
+
+## ShardedSingleStepDataset
+
+```python
+from gr00t.data.dataset import ShardedSingleStepDataset
+```
+
+Single-step dataset that creates shards from individual timesteps across episodes.
+
+This dataset provides step-level data access for VLA training by:
+1. Loading episodes using LeRobotEpisodeLoader
+2. Splitting episodes into individual timesteps
+3. Organizing timesteps into balanced shards for efficient loading
+4. Supporting episode subsampling for data efficiency
+
+The sharding strategy ensures balanced shard sizes while maintaining randomization across episodes and timesteps within episodes.
+
+### Constructor
+
+```python
+def __init__(
+    self,
+    dataset_path: str | Path,
+    embodiment_tag: EmbodimentTag,
+    modality_configs: dict[str, ModalityConfig],
+    video_backend: str = "torchcodec",
+    video_backend_kwargs: dict[str, Any] | None = None,
+    shard_size: int = 1024,
+    episode_sampling_rate: float = 0.1,
+    seed: int = 42,
+    allow_padding: bool = False,
+)
+```
+
+<ParamField path="dataset_path" type="str | Path" required>
+  Path to LeRobot format dataset directory.
+</ParamField>
+
+<ParamField path="embodiment_tag" type="EmbodimentTag" required>
+  Embodiment identifier for cross-embodiment training.
+</ParamField>
+
+<ParamField path="modality_configs" type="dict[str, ModalityConfig]" required>
+  Configuration for each modality (sampling, keys). Should include "video", "state", "action", and optionally "language".
+</ParamField>
+
+<ParamField path="video_backend" type="str" default="torchcodec">
+  Video decoding backend ('torchcodec', 'decord', etc.).
+</ParamField>
+
+<ParamField path="video_backend_kwargs" type="dict[str, Any] | None" default="None">
+  Additional arguments for video backend.
+</ParamField>
+
+<ParamField path="shard_size" type="int" default="1024">
+  Target number of timesteps per shard.
+</ParamField>
+
+<ParamField path="episode_sampling_rate" type="float" default="0.1">
+  Fraction of episode timesteps to use (for efficiency). Value of 0.1 means 10% of timesteps are sampled.
+</ParamField>
+
+<ParamField path="seed" type="int" default="42">
+  Random seed for reproducible sharding and sampling.
+</ParamField>
+
+<ParamField path="allow_padding" type="bool" default="False">
+  Whether to allow padding of indices to valid range [0, max_length - 1].
+</ParamField>
+
+### Usage example
+
+```python
+from gr00t.data.dataset import ShardedSingleStepDataset
+from gr00t.data.embodiment_tags import EmbodimentTag
+from gr00t.data.types import ModalityConfig
+
+dataset = ShardedSingleStepDataset(
+    dataset_path="/path/to/lerobot_dataset",
+    embodiment_tag=EmbodimentTag.UNITREE_G1,
+    modality_configs={
+        "video": ModalityConfig(
+            delta_indices=[0],
+            modality_keys=["front_cam"],
+        ),
+        "state": ModalityConfig(
+            delta_indices=[0],
+            modality_keys=["joint_positions"],
+        ),
+        "action": ModalityConfig(
+            delta_indices=list(range(16)),
+            modality_keys=["joint_velocities"],
+        ),
+    },
+    shard_size=1024,
+    episode_sampling_rate=0.1,
+)
+
+# Get first shard of processed timesteps
+shard_data = dataset.get_shard(0)
+```
+
+## ShardedMixtureDataset
+
+```python
+from gr00t.data.dataset import ShardedMixtureDataset
+```
+
+Iterable dataset that combines multiple sharded datasets with configurable mixing ratios.
+
+This dataset provides the core functionality for multi-dataset training:
+1. Combines multiple ShardedDataset instances with specified mixing weights
+2. Implements intelligent shard sampling that accounts for dataset sizes
+3. Provides efficient background shard caching for continuous data loading
+4. Handles distributed training across multiple workers and processes
+5. Merges dataset statistics for consistent normalization
+
+The sampling strategy ensures that datasets are sampled proportionally to their weights while accounting for differences in shard sizes.
+
+### Constructor
+
+```python
+def __init__(
+    self,
+    datasets: list[ShardedDataset],
+    weights: list[float],
+    processor: BaseProcessor,
+    seed: int = 42,
+    training: bool = True,
+    num_shards_per_epoch: int = 100000,
+    override_pretraining_statistics: bool = False,
+)
+```
+
+<ParamField path="datasets" type="list[ShardedDataset]" required>
+  List of ShardedDataset instances to combine.
+</ParamField>
+
+<ParamField path="weights" type="list[float]" required>
+  Mixing weights for each dataset (will be normalized to sum to 1.0).
+</ParamField>
+
+<ParamField path="processor" type="BaseProcessor" required>
+  Data processor to apply to all datasets.
+</ParamField>
+
+<ParamField path="seed" type="int" default="42">
+  Random seed for reproducible sampling.
+</ParamField>
+
+<ParamField path="training" type="bool" default="True">
+  Whether in training mode (affects sampling strategy). In training mode, samples shards randomly. In eval mode, samples every shard once.
+</ParamField>
+
+<ParamField path="num_shards_per_epoch" type="int" default="100000">
+  Number of shards to sample per epoch during training.
+</ParamField>
+
+<ParamField path="override_pretraining_statistics" type="bool" default="False">
+  Whether to override pretraining statistics with merged statistics.
+</ParamField>
+
+### Methods
+
+#### merge_statistics
+
+```python
+def merge_statistics(self) -> None
+```
+
+Merge dataset statistics across all datasets, grouped by embodiment.
+
+Combines statistics from datasets with the same embodiment tag using weighted averaging, then configures the processor with merged statistics.
+
+#### get_dataset_statistics
+
+```python
+def get_dataset_statistics(self) -> dict[str, dict[str, dict[str, list[float]]]]
+```
+
+Get the merged dataset statistics.
+
+<ResponseField name="return" type="dict[str, dict[str, dict[str, list[float]]]]">
+  Nested dictionary: `{embodiment_tag: {modality: {joint_group: {stat_type: values}}}}`
+</ResponseField>
+
+#### reset_seed
+
+```python
+def reset_seed(self, seed: int) -> None
+```
+
+Reset the random seed and regenerate sampling schedules.
+
+<ParamField path="seed" type="int" required>
+  New random seed to use.
+</ParamField>
+
+#### print_dataset_statistics
+
+```python
+def print_dataset_statistics(self) -> None
+```
+
+Print formatted dataset statistics for debugging and monitoring.
+
+#### get_initial_actions
+
+```python
+def get_initial_actions(self) -> list
+```
+
+Collect initial actions from all datasets.
+
+<ResponseField name="return" type="list">
+  Combined list of initial actions from all constituent datasets.
+</ResponseField>
+
+### Usage example
+
+```python
+from gr00t.data.dataset import (
+    ShardedSingleStepDataset,
+    ShardedMixtureDataset,
+)
+from gr00t.data.embodiment_tags import EmbodimentTag
+from gr00t.data.types import ModalityConfig
+
+# Create individual datasets
+dataset1 = ShardedSingleStepDataset(
+    dataset_path="/path/to/dataset1",
+    embodiment_tag=EmbodimentTag.UNITREE_G1,
+    modality_configs=modality_configs,
+    shard_size=1024,
+)
+
+dataset2 = ShardedSingleStepDataset(
+    dataset_path="/path/to/dataset2",
+    embodiment_tag=EmbodimentTag.UNITREE_G1,
+    modality_configs=modality_configs,
+    shard_size=1024,
+)
+
+dataset3 = ShardedSingleStepDataset(
+    dataset_path="/path/to/dataset3",
+    embodiment_tag=EmbodimentTag.GR1,
+    modality_configs=modality_configs,
+    shard_size=1024,
+)
+
+# Combine with mixture dataset
+mixture = ShardedMixtureDataset(
+    datasets=[dataset1, dataset2, dataset3],
+    weights=[0.5, 0.3, 0.2],  # 50% dataset1, 30% dataset2, 20% dataset3
+    processor=my_processor,
+    num_shards_per_epoch=10000,
+)
+
+# Print dataset info
+mixture.print_dataset_statistics()
+
+# Iterate over batches
+for batch in mixture:
+    # batch contains processed data from mixed datasets
+    model_output = model(**batch)
+```
+
+## LeRobotEpisodeLoader
+
+```python
+from gr00t.data.dataset import LeRobotEpisodeLoader
+```
+
+Episode-level data loader for LeRobot format datasets.
+
+This class handles the loading and preprocessing of individual episodes from LeRobot datasets. It manages metadata parsing, video decoding, and data extraction across multiple modalities (video, state, action, language).
+
+### Constructor
+
+```python
+def __init__(
+    self,
+    dataset_path: str | Path,
+    modality_configs: dict[str, ModalityConfig],
+    video_backend: str = "torchcodec",
+    video_backend_kwargs: dict[str, Any] | None = None,
+)
+```
+
+<ParamField path="dataset_path" type="str | Path" required>
+  Path to dataset root directory containing meta/ and data files.
+</ParamField>
+
+<ParamField path="modality_configs" type="dict[str, ModalityConfig]" required>
+  Dictionary mapping modality names to ModalityConfig objects that specify temporal sampling and data keys to load.
+</ParamField>
+
+<ParamField path="video_backend" type="str" default="torchcodec">
+  Video decoding backend ('torchcodec', 'decord', etc.).
+</ParamField>
+
+<ParamField path="video_backend_kwargs" type="dict[str, Any] | None" default="None">
+  Additional arguments for the video backend.
+</ParamField>
+
+### Methods
+
+#### \_\_getitem\_\_
+
+```python
+def __getitem__(self, idx: int) -> pd.DataFrame
+```
+
+Load complete episode data as a processed DataFrame.
+
+<ParamField path="idx" type="int" required>
+  Episode index to load.
+</ParamField>
+
+<ResponseField name="return" type="pd.DataFrame">
+  DataFrame with columns for all modalities and timestamps, with video frames as PIL Images.
+</ResponseField>
+
+#### get_dataset_statistics
+
+```python
+def get_dataset_statistics(self) -> dict[str, Any]
+```
+
+Extract dataset statistics for normalization from loaded metadata.
+
+<ResponseField name="return" type="dict[str, Any]">
+  Nested dictionary: `{modality: {joint_group: {stat_type: values}}}`
+</ResponseField>
+
+#### get_initial_actions
+
+```python
+def get_initial_actions(self) -> list
+```
+
+Load initial actions for policy initialization if available.
+
+<ResponseField name="return" type="list">
+  List containing initial action dictionaries, or empty list if not available.
+</ResponseField>
+
+### Usage example
+
+```python
+from gr00t.data.dataset import LeRobotEpisodeLoader
+from gr00t.data.types import ModalityConfig
+
+loader = LeRobotEpisodeLoader(
+    dataset_path="/path/to/lerobot_dataset",
+    modality_configs={
+        "video": ModalityConfig(
+            delta_indices=[0],
+            modality_keys=["front_cam"],
+        ),
+        "state": ModalityConfig(
+            delta_indices=[0],
+            modality_keys=["joint_positions"],
+        ),
+        "action": ModalityConfig(
+            delta_indices=list(range(16)),
+            modality_keys=["joint_velocities"],
+        ),
+    },
+)
+
+# Load first episode as DataFrame
+episode_data = loader[0]
+print(episode_data.columns)
+# ['state.joint_positions', 'action.joint_velocities', 'video.front_cam', ...]
+
+# Get dataset statistics
+stats = loader.get_dataset_statistics()
+```

@@ -1,0 +1,292 @@
+---
+title: Data types
+description: Core data types and structures for VLA training
+---
+
+The data types module defines core data structures, enums, and configurations used throughout the GR00T data pipeline.
+
+## Enums
+
+### MessageType
+
+```python
+from gr00t.data.types import MessageType
+```
+
+Defines the type of message in the VLA data pipeline.
+
+<ParamField path="START_OF_EPISODE" type="str">
+  Value: `"start_of_episode"`. Marks the beginning of an episode.
+</ParamField>
+
+<ParamField path="END_OF_EPISODE" type="str">
+  Value: `"end_of_episode"`. Marks the end of an episode.
+</ParamField>
+
+<ParamField path="EPISODE_STEP" type="str">
+  Value: `"episode_step"`. Contains VLAStepData for a single timestep.
+</ParamField>
+
+<ParamField path="IMAGE" type="str">
+  Value: `"image"`. Contains image data.
+</ParamField>
+
+<ParamField path="TEXT" type="str">
+  Value: `"text"`. Contains text/language data.
+</ParamField>
+
+### ActionRepresentation
+
+```python
+from gr00t.data.types import ActionRepresentation
+```
+
+Defines how actions are represented.
+
+<ParamField path="RELATIVE" type="str">
+  Value: `"relative"`. Actions relative to current state.
+</ParamField>
+
+<ParamField path="DELTA" type="str">
+  Value: `"delta"`. Change in state.
+</ParamField>
+
+<ParamField path="ABSOLUTE" type="str">
+  Value: `"absolute"`. Absolute target state.
+</ParamField>
+
+### ActionType
+
+```python
+from gr00t.data.types import ActionType
+```
+
+Defines whether actions are end-effector or non-end-effector.
+
+<ParamField path="EEF" type="str">
+  Value: `"eef"`. End-effector actions (Cartesian space).
+</ParamField>
+
+<ParamField path="NON_EEF" type="str">
+  Value: `"non_eef"`. Non-end-effector actions (joint space).
+</ParamField>
+
+### ActionFormat
+
+```python
+from gr00t.data.types import ActionFormat
+```
+
+Defines the format of action representation.
+
+<ParamField path="DEFAULT" type="str">
+  Value: `"default"`. Default action format.
+</ParamField>
+
+<ParamField path="XYZ_ROT6D" type="str">
+  Value: `"xyz+rot6d"`. 3D position + 6D rotation representation.
+</ParamField>
+
+<ParamField path="XYZ_ROTVEC" type="str">
+  Value: `"xyz+rotvec"`. 3D position + rotation vector.
+</ParamField>
+
+## Data structures
+
+### VLAStepData
+
+```python
+from gr00t.data.types import VLAStepData
+```
+
+Represents a single step of VLA (Vision-Language-Action) data. This is the core data structure returned by datasets, containing raw observation and action data that will be processed by the SequenceVLAProcessor.
+
+<ParamField path="images" type="dict[str, list[np.ndarray]]" required>
+  Dictionary mapping view names to lists of image arrays for temporal stacking.
+  
+  Example: `{"front_cam": [np.ndarray], "wrist_cam": [np.ndarray]}`
+</ParamField>
+
+<ParamField path="states" type="dict[str, np.ndarray]" required>
+  Dictionary mapping state names to numpy arrays. For single step: shape `(dim,)`. For trajectory: shape `(horizon, dim)`.
+  
+  Example: `{"joint_positions": np.ndarray, "gripper_state": np.ndarray}`
+</ParamField>
+
+<ParamField path="actions" type="dict[str, np.ndarray]" required>
+  Dictionary mapping action names to numpy arrays with shape `(horizon, dim)` for action chunking.
+  
+  Example: `{"joint_velocities": np.ndarray}`
+</ParamField>
+
+<ParamField path="text" type="str | None" default="None">
+  Optional task description or instruction.
+</ParamField>
+
+<ParamField path="embodiment" type="EmbodimentTag" default="EmbodimentTag.NEW_EMBODIMENT">
+  Embodiment tag for cross-embodiment training.
+</ParamField>
+
+<ParamField path="is_demonstration" type="bool" default="False">
+  Whether the step is a demonstration. If True, no loss should be computed for this step.
+</ParamField>
+
+<ParamField path="metadata" type="dict[str, Any]" default="{}">
+  Flexible metadata that can be extended by users.
+</ParamField>
+
+#### Usage example
+
+```python
+from gr00t.data.types import VLAStepData
+from gr00t.data.embodiment_tags import EmbodimentTag
+import numpy as np
+
+# Create a VLA step data instance
+vla_step = VLAStepData(
+    images={
+        "front_cam": [np.random.rand(224, 224, 3)],
+        "wrist_cam": [np.random.rand(224, 224, 3)],
+    },
+    states={
+        "joint_positions": np.random.rand(7),
+        "gripper_state": np.random.rand(1),
+    },
+    actions={
+        "joint_velocities": np.random.rand(16, 7),  # 16-step action chunk
+    },
+    text="Pick up the apple",
+    embodiment=EmbodimentTag.UNITREE_G1,
+)
+```
+
+### ActionConfig
+
+```python
+from gr00t.data.types import ActionConfig
+```
+
+Configuration for action representation and control.
+
+<ParamField path="rep" type="ActionRepresentation" required>
+  Action representation type (relative, delta, or absolute).
+</ParamField>
+
+<ParamField path="type" type="ActionType" required>
+  Action type (end-effector or non-end-effector).
+</ParamField>
+
+<ParamField path="format" type="ActionFormat" required>
+  Action format (default, xyz+rot6d, or xyz+rotvec).
+</ParamField>
+
+<ParamField path="state_key" type="str | None" default="None">
+  Optional state key for computing relative actions.
+</ParamField>
+
+#### Usage example
+
+```python
+from gr00t.data.types import (
+    ActionConfig,
+    ActionRepresentation,
+    ActionType,
+    ActionFormat,
+)
+
+# Configure relative joint actions
+action_config = ActionConfig(
+    rep=ActionRepresentation.RELATIVE,
+    type=ActionType.NON_EEF,
+    format=ActionFormat.DEFAULT,
+)
+
+# Configure absolute end-effector actions
+eef_config = ActionConfig(
+    rep=ActionRepresentation.ABSOLUTE,
+    type=ActionType.EEF,
+    format=ActionFormat.XYZ_ROT6D,
+    state_key="ee_pose",
+)
+```
+
+### ModalityConfig
+
+```python
+from gr00t.data.types import ModalityConfig
+```
+
+Configuration for a modality defining how data should be sampled and loaded.
+
+This class specifies which indices to sample relative to a base index and which keys to load for a particular modality (e.g., video, state, action).
+
+<ParamField path="delta_indices" type="list[int]" required>
+  Delta indices to sample relative to the current index. The returned data will correspond to the original data at a sampled base index + delta indices.
+  
+  Example: `[0]` for single timestep, `[-1, 0]` for current and previous, `list(range(16))` for 16-step action chunk.
+</ParamField>
+
+<ParamField path="modality_keys" type="list[str]" required>
+  The keys to load for the modality in the dataset.
+  
+  Example: `["front_cam", "wrist_cam"]` for video, `["joint_positions", "gripper_state"]` for state.
+</ParamField>
+
+<ParamField path="sin_cos_embedding_keys" type="list[str] | None" default="None">
+  Optional list of keys to apply sin/cos encoding. If None or empty, use min/max normalization for all keys.
+</ParamField>
+
+<ParamField path="mean_std_embedding_keys" type="list[str] | None" default="None">
+  Optional list of keys to apply mean/std normalization. If None or empty, use min/max normalization for all keys.
+</ParamField>
+
+<ParamField path="action_configs" type="list[ActionConfig] | None" default="None">
+  Optional list of ActionConfig objects, one per modality key. Must match the number of modality_keys if provided.
+</ParamField>
+
+#### Usage example
+
+```python
+from gr00t.data.types import (
+    ModalityConfig,
+    ActionConfig,
+    ActionRepresentation,
+    ActionType,
+    ActionFormat,
+)
+
+# Video modality: single timestep, multiple cameras
+video_config = ModalityConfig(
+    delta_indices=[0],
+    modality_keys=["front_cam", "wrist_cam"],
+)
+
+# State modality: single timestep, multiple state components
+state_config = ModalityConfig(
+    delta_indices=[0],
+    modality_keys=["left_arm", "right_arm", "gripper"],
+)
+
+# Action modality: 30-step chunk with action configs
+action_config = ModalityConfig(
+    delta_indices=list(range(30)),
+    modality_keys=["left_arm", "right_arm", "gripper"],
+    action_configs=[
+        ActionConfig(
+            rep=ActionRepresentation.RELATIVE,
+            type=ActionType.NON_EEF,
+            format=ActionFormat.DEFAULT,
+        ),
+        ActionConfig(
+            rep=ActionRepresentation.RELATIVE,
+            type=ActionType.NON_EEF,
+            format=ActionFormat.DEFAULT,
+        ),
+        ActionConfig(
+            rep=ActionRepresentation.ABSOLUTE,
+            type=ActionType.NON_EEF,
+            format=ActionFormat.DEFAULT,
+        ),
+    ],
+)
+```

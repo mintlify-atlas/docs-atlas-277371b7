@@ -1,0 +1,193 @@
+---
+title: BEHAVIOR benchmark
+description: 50 household loco-manipulation tasks with Galaxea R1 Pro robot
+---
+
+BEHAVIOR is a benchmark testing loco-manipulation capabilities across 50 diverse household tasks. The benchmark uses the Galaxea R1 Pro robot in simulated home environments powered by OmniGibson.
+
+For more information, see the [BEHAVIOR website](https://behavior.stanford.edu/).
+
+## Benchmark results
+
+Checkpoint: [nvidia/GR00T-N1.6-BEHAVIOR1k](https://huggingface.co/nvidia/GR00T-N1.6-BEHAVIOR1k)
+
+GR00T N1.6 achieves **26.30% average task progress** across all 50 tasks, compared to Pi0.5's 11.30%.
+
+### Top performing tasks
+
+| Task | Task progress (N1.6) |
+|------|---------------------|
+| clean_a_trumpet | 60.00% |
+| getting_organized_for_work | 53.57% |
+| boxing_books_up_for_storage | 51.54% |
+| attach_a_camera_to_a_tripod | 46.00% |
+| make_microwave_popcorn | 45.00% |
+| picking_up_trash | 44.87% |
+| turning_on_radio | 43.33% |
+| clearing_food_from_table_into_fridge | 42.31% |
+
+<Note>
+Task Progress is a denser metric than Q Score, measuring the proportion of subtasks completed within each household activity.
+</Note>
+
+### Individual task post-training
+
+Starting from the base checkpoint, post-training on individual tasks shows significant improvement:
+
+| Task | Task progress | Q score |
+|------|--------------|--------|
+| turning_on_radio | 80.56% | 0.70 |
+| chopping_wood | 20.00% | 0.125 |
+| cleaning_up_plates_and_food | 22.00% | 0.11 |
+| setting_mousetraps | 19.17% | 0.10 |
+
+## Fine-tuning
+
+<Steps>
+  <Step title="Download dataset">
+    Download the BEHAVIOR dataset from HuggingFace (all 50 tasks):
+    ```bash
+    huggingface-cli download nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim \
+        --repo-type dataset \
+        --include "sim_behavior_r1_pro.*" \
+        --local-dir $HOME/gr00t_dataset
+    ```
+    
+    To download a specific task, replace `sim_behavior_r1_pro.*` with the task name.
+  </Step>
+  
+  <Step title="Run fine-tuning">
+    ```bash
+    uv run bash examples/BEHAVIOR/finetune_BEHAVIOR.sh
+    ```
+    
+    Note the use of `BEHAVIOR_R1_PRO` embodiment tag.
+  </Step>
+</Steps>
+
+## Evaluation
+
+### Setup environment
+
+<Warning>
+BEHAVIOR simulation is built on Omniverse and Isaac Sim. GPUs without RT cores (A100, H100) are not supported. Tested on L40 and L40s. See [Isaac Sim requirements](https://docs.isaacsim.omniverse.nvidia.com/latest/installation/requirements.html) for details.
+</Warning>
+
+<Steps>
+  <Step title="Clone and setup BEHAVIOR-1K">
+    ```bash
+    git clone https://github.com/StanfordVL/BEHAVIOR-1K.git
+    cd BEHAVIOR-1K
+    
+    # Checkout branch with task progress metric
+    git checkout feat/task-progress
+    
+    # Activate GR00T uv environment
+    source PATH_TO_GR00T/.venv/bin/activate
+    
+    # Headless installation (auto-accepts EULA and license)
+    bash ./setup_uv.sh
+    ```
+  </Step>
+  
+  <Step title="Download test instances">
+    Download test cases from the [BEHAVIOR Challenge](https://behavior.stanford.edu/challenge/index.html):
+    ```bash
+    python gr00t/eval/sim/BEHAVIOR/prepare_test_instances.py
+    ```
+  </Step>
+</Steps>
+
+### Run evaluation
+
+<Steps>
+  <Step title="Start policy server">
+    In Terminal 1:
+    ```bash
+    uv sync --python 3.10
+    uv pip install -e .
+    
+    uv run gr00t/eval/run_gr00t_server.py \
+        --model-path nvidia/GR00T-N1.6-BEHAVIOR1k \
+        --embodiment-tag BEHAVIOR_R1_PRO \
+        --use-sim-policy-wrapper
+    ```
+  </Step>
+  
+  <Step title="Start evaluation client">
+    In Terminal 2:
+    ```bash
+    uv run python gr00t/eval/rollout_policy.py \
+        --n_episodes 10 \
+        --policy_client_host 127.0.0.1 \
+        --policy_client_port 5555 \
+        --max_episode_steps=999999999 \
+        --env_name sim_behavior_r1_pro/turning_on_radio \
+        --n_action_steps 8 \
+        --n_envs 1
+    ```
+    
+    <Note>
+    We set `max_episode_steps` to a large value because BEHAVIOR uses 2x human steps as the horizon. Set a smaller value for faster debugging. Video recording is disabled to prevent simulation crashes with `decord`.
+    </Note>
+  </Step>
+</Steps>
+
+## Task list
+
+All 50 BEHAVIOR tasks are available with the `sim_behavior_r1_pro/` prefix:
+
+<AccordionGroup>
+  <Accordion title="View all 50 tasks">
+    - sim_behavior_r1_pro/turning_on_radio
+    - sim_behavior_r1_pro/hanging_pictures
+    - sim_behavior_r1_pro/make_microwave_popcorn
+    - sim_behavior_r1_pro/attach_a_camera_to_a_tripod
+    - sim_behavior_r1_pro/picking_up_trash
+    - sim_behavior_r1_pro/clean_a_trumpet
+    - sim_behavior_r1_pro/set_up_a_coffee_station_in_your_kitchen
+    - sim_behavior_r1_pro/chop_an_onion
+    - sim_behavior_r1_pro/spraying_for_bugs
+    - sim_behavior_r1_pro/hiding_Easter_eggs
+    - sim_behavior_r1_pro/cook_bacon
+    - sim_behavior_r1_pro/putting_shoes_on_rack
+    - sim_behavior_r1_pro/clean_boxing_gloves
+    - sim_behavior_r1_pro/preparing_lunch_box
+    - sim_behavior_r1_pro/spraying_fruit_trees
+    - sim_behavior_r1_pro/wash_a_baseball_cap
+    - sim_behavior_r1_pro/rearranging_kitchen_furniture
+    - sim_behavior_r1_pro/setting_the_fire
+    - sim_behavior_r1_pro/bringing_water
+    - sim_behavior_r1_pro/cook_hot_dogs
+    - sim_behavior_r1_pro/setting_mousetraps
+    - sim_behavior_r1_pro/outfit_a_basic_toolbox
+    - sim_behavior_r1_pro/chopping_wood
+    - sim_behavior_r1_pro/putting_dishes_away_after_cleaning
+    - sim_behavior_r1_pro/tidying_bedroom
+    - sim_behavior_r1_pro/wash_dog_toys
+    - sim_behavior_r1_pro/can_meat
+    - sim_behavior_r1_pro/sorting_vegetables
+    - sim_behavior_r1_pro/clean_a_patio
+    - sim_behavior_r1_pro/freeze_pies
+    - sim_behavior_r1_pro/clearing_food_from_table_into_fridge
+    - sim_behavior_r1_pro/bringing_in_wood
+    - sim_behavior_r1_pro/cleaning_up_plates_and_food
+    - sim_behavior_r1_pro/putting_up_Christmas_decorations_inside
+    - sim_behavior_r1_pro/putting_away_Halloween_decorations
+    - sim_behavior_r1_pro/cook_cabbage
+    - sim_behavior_r1_pro/carrying_in_groceries
+    - sim_behavior_r1_pro/moving_boxes_to_storage
+    - sim_behavior_r1_pro/getting_organized_for_work
+    - sim_behavior_r1_pro/sorting_household_items
+    - sim_behavior_r1_pro/picking_up_toys
+    - sim_behavior_r1_pro/collecting_childrens_toys
+    - sim_behavior_r1_pro/make_pizza
+    - sim_behavior_r1_pro/loading_the_car
+    - sim_behavior_r1_pro/storing_food
+    - sim_behavior_r1_pro/clean_up_your_desk
+    - sim_behavior_r1_pro/canning_food
+    - sim_behavior_r1_pro/boxing_books_up_for_storage
+    - sim_behavior_r1_pro/assembling_gift_baskets
+    - sim_behavior_r1_pro/slicing_vegetables
+  </Accordion>
+</AccordionGroup>

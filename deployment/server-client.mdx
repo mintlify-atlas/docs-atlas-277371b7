@@ -1,0 +1,303 @@
+---
+title: Server-client architecture
+description: Deploy GR00T inference with server-client architecture for remote GPU execution
+---
+
+The server-client architecture allows you to run GR00T inference on a remote GPU server while controlling robots from a separate client machine. This setup uses ZeroMQ for fast, low-latency communication.
+
+## Architecture overview
+
+The `PolicyServer` runs on a GPU-equipped machine and handles inference requests, while `PolicyClient` runs on your robot controller or simulation environment:
+
+```python
+# Server side (GPU machine)
+from gr00t.policy.server_client import PolicyServer
+from gr00t.policy.gr00t_policy import Gr00tPolicy
+
+policy = Gr00tPolicy(
+    embodiment_tag="GR1",
+    model_path="nvidia/GR00T-N1.6-3B",
+    device="cuda"
+)
+server = PolicyServer(policy, host="0.0.0.0", port=5555)
+server.run()
+```
+
+```python
+# Client side (robot controller)
+from gr00t.policy.server_client import PolicyClient
+
+policy = PolicyClient(host="192.168.1.100", port=5555)
+action, info = policy.get_action(observation)
+```
+
+## Starting the server
+
+<Steps>
+
+### Launch the policy server
+
+Use the provided server script to start inference:
+
+```bash
+uv run python gr00t/eval/run_gr00t_server.py \
+    --embodiment-tag GR1 \
+    --model-path nvidia/GR00T-N1.6-3B \
+    --device cuda:0 \
+    --host 0.0.0.0 \
+    --port 5555
+```
+
+### Verify the server is running
+
+You should see:
+
+```
+Starting GR00T inference server...
+  Embodiment tag: GR1
+  Model path: nvidia/GR00T-N1.6-3B
+  Device: cuda
+  Host: 0.0.0.0
+  Port: 5555
+Server is ready and listening on tcp://0.0.0.0:5555
+```
+
+### Test connectivity
+
+From the client machine:
+
+```python
+from gr00t.policy.server_client import PolicyClient
+
+policy = PolicyClient(host="192.168.1.100", port=5555)
+if policy.ping():
+    print("Connected successfully!")
+else:
+    print("Connection failed")
+```
+
+</Steps>
+
+## Server configuration
+
+The `PolicyServer` class provides several configuration options:
+
+### Basic configuration
+
+```python
+server = PolicyServer(
+    policy=policy,
+    host="*",           # Bind to all interfaces
+    port=5555,          # Default port
+    api_token=None      # Optional authentication
+)
+```
+
+### With authentication
+
+```python
+server = PolicyServer(
+    policy=policy,
+    host="0.0.0.0",
+    port=5555,
+    api_token="your-secret-token"
+)
+```
+
+On the client side:
+
+```python
+policy = PolicyClient(
+    host="192.168.1.100",
+    port=5555,
+    api_token="your-secret-token"
+)
+```
+
+### Server endpoints
+
+The server registers these endpoints by default:
+
+- `ping`: Health check endpoint
+- `kill`: Gracefully shutdown the server
+- `get_action`: Get action from observation
+- `reset`: Reset policy state
+- `get_modality_config`: Retrieve modality configuration
+
+## Client usage
+
+The `PolicyClient` implements the same interface as `BasePolicy`:
+
+```python
+from gr00t.policy.server_client import PolicyClient
+
+# Initialize client
+policy = PolicyClient(
+    host="localhost",
+    port=5555,
+    timeout_ms=15000,  # Request timeout
+    strict=False        # Disable client-side validation
+)
+
+# Get modality configuration
+modality_config = policy.get_modality_config()
+
+# Reset policy
+policy.reset(options={"episode_index": 0})
+
+# Get action
+action, info = policy.get_action(observation)
+
+# Shutdown server (optional)
+policy.kill_server()
+```
+
+### Timeout configuration
+
+Configure request timeout based on your inference latency:
+
+```python
+policy = PolicyClient(
+    host="192.168.1.100",
+    port=5555,
+    timeout_ms=30000  # 30 second timeout for slow networks
+)
+```
+
+## Custom endpoints
+
+Register custom endpoints for application-specific functionality:
+
+```python
+from gr00t.policy.server_client import PolicyServer
+
+def custom_handler(param1: str, param2: int) -> dict:
+    # Your custom logic
+    return {"result": f"Processed {param1} with {param2}"}
+
+server = PolicyServer(policy, port=5555)
+server.register_endpoint(
+    "custom_endpoint",
+    custom_handler,
+    requires_input=True
+)
+server.run()
+```
+
+Call from client:
+
+```python
+result = policy.call_endpoint(
+    "custom_endpoint",
+    data={"param1": "test", "param2": 42}
+)
+```
+
+## Message serialization
+
+The server uses MessagePack for efficient serialization with custom handling for NumPy arrays and modality configs:
+
+```python
+class MsgSerializer:
+    @staticmethod
+    def encode_custom_classes(obj):
+        if isinstance(obj, np.ndarray):
+            output = io.BytesIO()
+            np.save(output, obj, allow_pickle=False)
+            return {"__ndarray_class__": True, "as_npy": output.getvalue()}
+        # ... other types
+```
+
+This ensures fast, zero-copy transfer of large arrays like images.
+
+## Debugging with replay policy
+
+Test your client integration without a trained model:
+
+```bash
+uv run python gr00t/eval/run_gr00t_server.py \
+    --dataset-path demo_data/gr1.PickNPlace \
+    --embodiment-tag GR1 \
+    --execution-horizon 8
+```
+
+The server replays actions from the dataset. Switch episodes with:
+
+```python
+policy.reset(options={"episode_index": 5})
+```
+
+<Note>
+The replay policy is useful for verifying environment setup, observation formatting, and action execution without requiring a trained model.
+</Note>
+
+## Network considerations
+
+### Firewall configuration
+
+Ensure port 5555 (or your chosen port) is open:
+
+```bash
+# On server machine
+sudo ufw allow 5555/tcp
+```
+
+### Latency optimization
+
+For low-latency applications:
+
+1. Use dedicated network interfaces
+2. Disable TCP Nagle's algorithm (ZeroMQ does this by default)
+3. Run server and client on the same machine when possible
+4. Consider using InfiniBand or high-speed Ethernet
+
+<Warning>
+The server binds to `0.0.0.0` by default, making it accessible from any network interface. Use `api_token` authentication or firewall rules to restrict access in production deployments.
+</Warning>
+
+## Error handling
+
+The server catches exceptions and returns error responses:
+
+```python
+try:
+    action, info = policy.get_action(observation)
+except RuntimeError as e:
+    if "Server error" in str(e):
+        print(f"Server error: {e}")
+        # Reconnect or handle error
+```
+
+Common errors:
+
+- `"Unauthorized: Invalid API token"`: Authentication failed
+- `"Unknown endpoint"`: Endpoint not registered
+- Connection timeout: Server unreachable or overloaded
+
+## Server script configuration
+
+The `run_gr00t_server.py` script supports additional options:
+
+```python
+@dataclass
+class ServerConfig:
+    model_path: str | None = None
+    embodiment_tag: EmbodimentTag = EmbodimentTag.NEW_EMBODIMENT
+    device: str = "cuda"
+    dataset_path: str | None = None  # For replay policy
+    modality_config_path: str | None = None
+    execution_horizon: int | None = None
+    host: str = "0.0.0.0"
+    port: int = 5555
+    strict: bool = True
+    use_sim_policy_wrapper: bool = False
+```
+
+Example with simulation wrapper:
+
+```bash
+uv run python gr00t/eval/run_gr00t_server.py \
+    --model-path nvidia/GR00T-N1.6-3B \
+    --embodiment-tag GR1 \
+    --use-sim-policy-wrapper
+```

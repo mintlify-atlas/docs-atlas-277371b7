@@ -1,0 +1,252 @@
+---
+title: What's new
+description: GR00T N1.6 introduces significant improvements in model architecture, training data, and code infrastructure compared to N1.5
+---
+
+<Note>
+  To use the older GR00T N1.5 version, checkout the [n1.5-release](https://github.com/NVIDIA/Isaac-GR00T/tree/n1.5-release) branch.
+</Note>
+
+GR00T N1.6 represents a significant upgrade over GR00T N1.5, with improvements in both model architecture and training data leading to better performance in many aspects.
+
+## Model architecture improvements
+
+### Vision-language backbone
+
+<Card title="New VLM foundation" icon="eye">
+  N1.6 uses an internal NVIDIA Cosmos-Reason-2B VLM variant with flexible resolution support and native aspect ratio encoding (no padding required).
+</Card>
+
+The new vision-language model is trained on both general vision-language tasks and embodied reasoning tasks like next action prediction, providing stronger grounding for robotic control.
+
+**Key advantages:**
+- Flexible resolution processing without padding artifacts
+- Native aspect ratio support for diverse camera configurations  
+- Embodied reasoning capabilities built into the foundation
+- Improved visual understanding for manipulation tasks
+
+### Diffusion transformer scaling
+
+<Tabs>
+  <Tab title="N1.6">
+    **32-layer DiT**
+    
+    The action head uses a 32-layer diffusion transformer for increased model capacity and better action prediction.
+    
+    ```python
+    # From gr00t/model/gr00t_n1d6/gr00t_n1d6.py
+    self.model = AlternateVLDiT(
+        **config.diffusion_model_cfg,
+        cross_attention_dim=config.backbone_embedding_dim,
+        attend_text_every_n_blocks=config.attend_text_every_n_blocks,
+    )
+    ```
+  </Tab>
+  
+  <Tab title="N1.5">
+    **16-layer DiT**
+    
+    The previous version used a smaller 16-layer diffusion transformer.
+  </Tab>
+</Tabs>
+
+### Architecture simplification
+
+<Card title="Top-layer tuning" icon="layer-group">
+  N1.6 removes the 4-layer transformer adapter after the VLM. Instead, the top 4 layers of the VLM are unfrozen during pretraining for more efficient fine-tuning.
+</Card>
+
+**Code reference:** `gr00t/model/modules/eagle_backbone.py:75-78`
+
+```python
+if tune_top_llm_layers > 0:
+    for layer in self.model.language_model.model.layers[-tune_top_llm_layers:]:
+        for param in layer.parameters():
+            param.requires_grad = True
+```
+
+### State-relative action prediction
+
+<Info>
+  N1.6 predicts **state-relative action chunks** for most embodiments, rather than absolute joint angles or end-effector positions used in N1.5.
+</Info>
+
+This architectural change improves:
+- Generalization across different initial configurations
+- Transfer learning between similar embodiments
+- Robustness to calibration differences
+
+## Training data expansion
+
+Beyond the N1.5 data mixture, the N1.6 pretraining data additionally includes **several thousand hours** of teleoperated data from:
+
+<CardGroup cols={2}>
+  <Card title="Bimanual YAM arms" icon="hands">
+    High-quality bimanual manipulation demonstrations
+  </Card>
+  
+  <Card title="AGIBot Genie1" icon="robot">
+    Humanoid robot teleoperation data
+  </Card>
+  
+  <Card title="Galaxea R1 Pro (BEHAVIOR)" icon="house">
+    Simulated whole-body loco-manipulation on BEHAVIOR-1K suite
+  </Card>
+  
+  <Card title="Unitree G1" icon="person-walking">
+    Whole-body locomanipulation demonstrations
+  </Card>
+</CardGroup>
+
+The expanded dataset provides:
+- Greater embodiment diversity (bimanual, semi-humanoid, full humanoid)
+- More task variety (tabletop, loco-manipulation, whole-body control)
+- Improved zero-shot generalization
+- Better foundation for downstream fine-tuning
+
+## Code-level improvements
+
+### Faster data loading
+
+<Card title="Sharded dataloader" icon="database">
+  New sharded dataloader implementation with significantly improved throughput for multi-GPU training.
+</Card>
+
+**Key features:**
+- Parallel data loading across GPUs
+- Reduced I/O bottlenecks
+- Better utilization of distributed training
+
+### Simplified data processing
+
+<Tabs>
+  <Tab title="N1.6">
+    **Single processing script**
+    
+    All data processing unified in `processing_gr00t_n1d6.py` with the `Gr00tN1d6DataCollator`:
+    
+    ```python
+    # From gr00t/model/gr00t_n1d6/gr00t_n1d6.py:456
+    from .processing_gr00t_n1d6 import Gr00tN1d6DataCollator
+
+    self.collator = Gr00tN1d6DataCollator(
+        model_name=config.model_name,
+        model_type=config.backbone_model_type,
+        transformers_loading_kwargs=transformers_loading_kwargs,
+    )
+    ```
+  </Tab>
+  
+  <Tab title="N1.5">
+    **Multiple processing files**
+    
+    Previous version had scattered processing logic across multiple files.
+  </Tab>
+</Tabs>
+
+### Flexible training configuration
+
+N1.6 introduces more granular control over training:
+
+```python
+# From gr00t/model/gr00t_n1d6/gr00t_n1d6.py:86-88
+def set_trainable_parameters(
+    self, tune_projector: bool, tune_diffusion_model: bool, tune_vlln: bool
+):
+    self.tune_projector = tune_projector
+    self.tune_diffusion_model = tune_diffusion_model
+    self.tune_vlln = tune_vlln
+```
+
+**Training options:**
+- `tune_projector`: Control state encoder and action decoder training
+- `tune_diffusion_model`: Control DiT training
+- `tune_vlln`: Control vision-language layer norm training
+- `tune_top_llm_layers`: Fine-tune specific VLM layers
+
+### Inference optimizations
+
+<CardGroup cols={2}>
+  <Card title="RTC wrapper" icon="clock">
+    Real-time control wrapper for low-latency deployment (coming soon)
+  </Card>
+  
+  <Card title="Async policy" icon="arrows-spin">
+    Asynchronous policy execution for parallel environment rollouts (coming soon)
+  </Card>
+</CardGroup>
+
+## Performance comparison
+
+Inference timing on RTX 5090 (4 denoising steps, single view):
+
+| Component | N1.6 (torch.compile) | Notes |
+|-----------|---------------------|-------|
+| Data Processing | 2 ms | Input preprocessing |
+| Backbone | 18 ms | VLM forward pass |
+| Action Head | 16 ms | DiT denoising |
+| **End-to-End** | **37 ms** | **27.3 Hz** |
+
+<Info>
+  Despite the larger architecture (32 vs 16 DiT layers), N1.6 maintains competitive inference speed through optimization.
+</Info>
+
+## Hardware compatibility
+
+Tested configurations:
+
+<Tabs>
+  <Tab title="GPU">
+    - **RTX 5090**: 27.3 Hz (recommended for development)
+    - **H100**: 26.3 Hz (optimal for training)
+    - **RTX 4090**: 22.8 Hz (good for deployment)
+    - **L40**: Supported for fine-tuning
+    - **A6000**: Longer training time but functional
+  </Tab>
+  
+  <Tab title="Edge">
+    - **Jetson AGX Thor**: 9.5 Hz with torch.compile
+    - TensorRT support for faster edge inference
+  </Tab>
+</Tabs>
+
+## Migration from N1.5
+
+If you're upgrading from GR00T N1.5:
+
+<Steps>
+  <Step title="Update repository">
+    Pull the latest main branch (N1.6 is the default)
+  </Step>
+  
+  <Step title="Update dependencies">
+    Run `uv sync --python 3.10` to update to new dependencies
+  </Step>
+  
+  <Step title="Download new checkpoints">
+    Use `nvidia/GR00T-N1.6-3B` instead of `nvidia/GR00T-N1.5-3B`
+  </Step>
+  
+  <Step title="Update configs">
+    Review modality configs for state-relative action changes
+  </Step>
+  
+  <Step title="Retrain if needed">
+    Consider retraining on your dataset to benefit from architecture improvements
+  </Step>
+</Steps>
+
+<Warning>
+  N1.6 and N1.5 checkpoints are **not compatible** due to architecture differences. You cannot load N1.5 weights into N1.6 model architecture.
+</Warning>
+
+## What's next
+
+Upcoming features in development:
+
+- RTC and Async Policy Wrapper for production deployment
+- Additional pre-trained checkpoints for more embodiments
+- Enhanced TensorRT optimization scripts
+- Improved documentation for real robot deployment
+
+For the latest updates, follow the [GitHub repository](https://github.com/NVIDIA/Isaac-GR00T) and [research blog](https://research.nvidia.com/labs/gear/gr00t-n1_6/).

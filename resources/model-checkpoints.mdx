@@ -1,0 +1,131 @@
+---
+title: Model checkpoints
+description: Available GR00T model checkpoints for base models and finetuned variants
+---
+
+This page provides links to all available GR00T model checkpoints, including base models for finetuning and pre-finetuned models for specific robot platforms and benchmarks.
+
+## Base models
+
+We provide pre-trained base VLA model checkpoints. These checkpoints have been pre-trained on 10k+ hours of robot data and can be used for finetuning on downstream tasks.
+
+<CardGroup cols={2}>
+  <Card title="GR00T N1.5" icon="robot" href="https://huggingface.co/nvidia/GR00T-N1.5-3B">
+    Base GR00T N1.5 model (3B parameters) - Use the n1.5-release branch
+  </Card>
+  <Card title="GR00T N1.6" icon="robot" href="https://huggingface.co/nvidia/GR00T-N1.6-3B">
+    Base GR00T N1.6 model (3B parameters) - Latest version with improved performance
+  </Card>
+</CardGroup>
+
+### Model comparison
+
+| Model | Use case | Description | Checkpoint path | Branch |
+| ----- | -------- | ----------- | --------------- | ------ |
+| GR00T N1.5 | Finetuning | Base [GR00T N1.5 model](https://research.nvidia.com/labs/gear/gr00t-n1_5/) (3B parameters) | [nvidia/GR00T-N1.5-3B](https://huggingface.co/nvidia/GR00T-N1.5-3B) | [n1.5-release](https://github.com/NVIDIA/Isaac-GR00T/tree/n1.5-release) |
+| GR00T N1.6 | Finetuning | Base [GR00T N1.6 model](https://research.nvidia.com/labs/gear/gr00t-n1_6/) (3B parameters) | [nvidia/GR00T-N1.6-3B](https://huggingface.co/nvidia/GR00T-N1.6-3B) | [main](https://github.com/NVIDIA/Isaac-GR00T) |
+
+<Note>
+GR00T N1.6 represents a significant upgrade over N1.5, with improvements in both model architecture and training data leading to better performance across many benchmarks.
+</Note>
+
+## Finetuned models
+
+We provide finetuned checkpoints for various robot platforms and benchmarks. These models are finetuned from the base models above and can be used directly for evaluation or as starting points for further finetuning.
+
+### Available finetuned checkpoints
+
+<CardGroup cols={2}>
+  <Card title="Bridge dataset" icon="bridge" href="https://huggingface.co/nvidia/GR00T-N1.6-bridge">
+    Fine-tuned for WidowX robot on manipulation tasks
+  </Card>
+  <Card title="Fractal dataset" icon="google" href="https://huggingface.co/nvidia/GR00T-N1.6-fractal">
+    Fine-tuned for Google robot on manipulation tasks
+  </Card>
+  <Card title="BEHAVIOR-1K" icon="brain" href="https://huggingface.co/nvidia/GR00T-N1.6-BEHAVIOR1k">
+    Fine-tuned for Galaxea R1 Pro robot on loco-manipulation tasks
+  </Card>
+  <Card title="Unitree G1" icon="person-walking" href="https://huggingface.co/nvidia/GR00T-N1.6-G1-PnPAppleToPlate">
+    Fine-tuned for Unitree G1 loco-manipulation pick-and-place tasks
+  </Card>
+  <Card title="DROID" icon="hand" href="https://huggingface.co/nvidia/GR00T-N1.6-DROID">
+    Fine-tuned for DROID robot on manipulation tasks
+  </Card>
+</CardGroup>
+
+### Finetuned model details
+
+| Model | Base model | Description | Checkpoint path | Example |
+| ----- | ---------- | ----------- | --------------- | ------- |
+| GR00T-N1.6-bridge | [nvidia/GR00T-N1.6-3B](https://huggingface.co/nvidia/GR00T-N1.6-3B) | Fine-tuned on [Bridge dataset](https://rail-berkeley.github.io/bridgedata/) for WidowX robot on manipulation tasks | [nvidia/GR00T-N1.6-bridge](https://huggingface.co/nvidia/GR00T-N1.6-bridge) | [SimplerEnv](/examples/simplerenv) |
+| GR00T-N1.6-fractal | [nvidia/GR00T-N1.6-3B](https://huggingface.co/nvidia/GR00T-N1.6-3B) | Fine-tuned on [Fractal dataset](https://www.tensorflow.org/datasets/catalog/fractal20220817_data) for Google robot on manipulation tasks | [nvidia/GR00T-N1.6-fractal](https://huggingface.co/nvidia/GR00T-N1.6-fractal) | [SimplerEnv](/examples/simplerenv) |
+| GR00T-N1.6-BEHAVIOR1k | [nvidia/GR00T-N1.6-3B](https://huggingface.co/nvidia/GR00T-N1.6-3B) | Fine-tuned on [BEHAVIOR-1K](https://behavior.stanford.edu/) for Galaxea R1 Pro robot on loco-manipulation tasks | [nvidia/GR00T-N1.6-BEHAVIOR1k](https://huggingface.co/nvidia/GR00T-N1.6-BEHAVIOR1k) | [BEHAVIOR](/examples/behavior) |
+| GR00T-N1.6-G1-PnPAppleToPlate | [nvidia/GR00T-N1.6-3B](https://huggingface.co/nvidia/GR00T-N1.6-3B) | Fine-tuned for Unitree G1 loco-manipulation pick-and-place tasks | [nvidia/GR00T-N1.6-G1-PnPAppleToPlate](https://huggingface.co/nvidia/GR00T-N1.6-G1-PnPAppleToPlate) | [G1 LocoManipulation](/examples/g1-whole-body-control) |
+| GR00T-N1.6-DROID | [nvidia/GR00T-N1.6-DROID](https://huggingface.co/nvidia/GR00T-N1.6-DROID) | Fine-tuned for DROID robot on manipulation tasks | [nvidia/GR00T-N1.6-DROID](https://huggingface.co/nvidia/GR00T-N1.6-DROID) | [DROID](/examples/droid) |
+
+## Using model checkpoints
+
+All model checkpoints are hosted on Hugging Face and can be downloaded automatically when you run inference or finetuning scripts.
+
+### Quick start with base model
+
+```bash
+# Start the policy server with a base model
+uv run python gr00t/eval/run_gr00t_server.py \
+  --embodiment-tag GR1 \
+  --model-path nvidia/GR00T-N1.6-3B
+```
+
+### Using a finetuned model
+
+```bash
+# Use a finetuned checkpoint for evaluation
+uv run python scripts/deployment/standalone_inference_script.py \
+  --model-path nvidia/GR00T-N1.6-bridge \
+  --dataset-path demo_data/widowx.dataset \
+  --embodiment-tag OXE_WIDOWX \
+  --traj-ids 0 1 2
+```
+
+<Tip>
+When you specify a Hugging Face model path like `nvidia/GR00T-N1.6-3B`, the model will be automatically downloaded and cached on your system. You can also use a local path to a checkpoint directory.
+</Tip>
+
+## Inference performance
+
+GR00T-N1.6-3B inference timing (4 denoising steps, single view):
+
+| Device | Mode | Data processing | Backbone | Action head | End-to-end | Frequency |
+|--------|------|-----------------|----------|-------------|------------|-----------||
+| RTX 5090 | torch.compile | 2 ms | 18 ms | 16 ms | 37 ms | 27.3 Hz |
+| H100 | torch.compile | 4 ms | 23 ms | 11 ms | 38 ms | 26.3 Hz |
+| RTX 4090 | torch.compile | 2 ms | 25 ms | 17 ms | 44 ms | 22.8 Hz |
+| Thor | torch.compile | 5 ms | 39 ms | 61 ms | 105 ms | 9.5 Hz |
+
+<Note>
+For faster inference with TensorRT optimization, see the [deployment guide](/deployment/inference).
+</Note>
+
+## What's new in GR00T N1.6
+
+GR00T N1.6 represents a significant upgrade over GR00T N1.5, with improvements in both model architecture and data leading to better performance in many aspects.
+
+### Model and data improvements
+
+Architectural changes:
+- **Base VLM**: Uses an internal NVIDIA Cosmos-Reason-2B VLM variant that supports flexible resolution and can encode images in their native aspect ratio without padding
+- **Larger DiT**: Uses 2x larger DiT (32 layers vs 16 layers in N1.5)
+- **Simplified architecture**: Removes N1.5's post-VLM 4-layer transformer adapter and instead unfreezes top 4 layers of the VLM during pretraining
+- **State-relative actions**: Predicts state-relative action chunks for most embodiments rather than absolute joint angles or EEF positions
+
+Beyond the N1.5 data mixture, the N1.6 pretraining data additionally includes several thousand hours of teleoperated data from:
+- Bimanual YAM arms
+- AGIBot Genie1
+- Simulated Galaxea R1 Pro on the BEHAVIOR suite
+- Whole-body locomanipulation with Unitree G1
+
+Other code-level improvements:
+- Faster dataloader with sharded dataloader support
+- RTC and async policy wrapper for inference
+- Simplified data processing pipeline
+- Flexible training configuration

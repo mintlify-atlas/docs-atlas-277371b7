@@ -1,0 +1,128 @@
+---
+title: Embodiment tags
+description: Robot embodiment identifiers for cross-embodiment training
+---
+
+Embodiment tags are used to identify the robot embodiment in the data. They enable cross-embodiment training by providing consistent identifiers across datasets.
+
+## Naming convention
+
+Embodiment tags follow the pattern `<dataset>_<robot_name>`. If using multiple datasets with the same robot (e.g., sim GR1 and real GR1), you can drop the dataset name and use only the robot name.
+
+## EmbodimentTag
+
+```python
+from gr00t.data.embodiment_tags import EmbodimentTag
+```
+
+Enum class for robot embodiment identifiers.
+
+### Pretrain embodiment tags
+
+These embodiments are used during the pretraining phase:
+
+#### ROBOCASA_PANDA_OMRON
+
+The RoboCasa Panda robot with Omron mobile base.
+
+```python
+EmbodimentTag.ROBOCASA_PANDA_OMRON
+# Value: "robocasa_panda_omron"
+```
+
+#### GR1
+
+The Fourier GR1 robot.
+
+```python
+EmbodimentTag.GR1
+# Value: "gr1"
+```
+
+### Posttrain embodiment tags
+
+These embodiments are pre-registered for post-training:
+
+#### UNITREE_G1
+
+The Unitree G1 robot.
+
+```python
+EmbodimentTag.UNITREE_G1
+# Value: "unitree_g1"
+```
+
+#### LIBERO_PANDA
+
+The Libero Panda robot.
+
+```python
+EmbodimentTag.LIBERO_PANDA
+# Value: "libero_panda"
+```
+
+#### OXE_GOOGLE
+
+The Open-X-Embodiment Google robot.
+
+```python
+EmbodimentTag.OXE_GOOGLE
+# Value: "oxe_google"
+```
+
+#### OXE_WIDOWX
+
+The Open-X-Embodiment WidowX robot.
+
+```python
+EmbodimentTag.OXE_WIDOWX
+# Value: "oxe_widowx"
+```
+
+#### OXE_DROID
+
+The Open-X-Embodiment DROID robot with relative joint position actions.
+
+```python
+EmbodimentTag.OXE_DROID
+# Value: "oxe_droid"
+```
+
+#### BEHAVIOR_R1_PRO
+
+The Behavior R1 Pro robot.
+
+```python
+EmbodimentTag.BEHAVIOR_R1_PRO
+# Value: "behavior_r1_pro"
+```
+
+### Custom embodiments
+
+#### NEW_EMBODIMENT
+
+Placeholder tag for any new embodiment during post-training.
+
+```python
+EmbodimentTag.NEW_EMBODIMENT
+# Value: "new_embodiment"
+```
+
+## Usage
+
+```python
+from gr00t.data.embodiment_tags import EmbodimentTag
+from gr00t.data.types import VLAStepData
+
+# Create VLA step data with embodiment tag
+vla_step = VLAStepData(
+    images={"front_cam": [image_array]},
+    states={"joint_positions": state_array},
+    actions={"joint_velocities": action_array},
+    text="Pick up the apple",
+    embodiment=EmbodimentTag.UNITREE_G1,
+)
+
+# Access embodiment value
+print(vla_step.embodiment.value)  # "unitree_g1"
+```

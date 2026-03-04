@@ -1,0 +1,222 @@
+---
+title: Hardware requirements
+description: Recommended hardware for training and deploying GR00T models
+---
+
+GR00T N models are designed for training on high-performance GPU servers and deployment on edge devices like NVIDIA Jetson AGX Thor. This guide outlines the recommended hardware configurations for different use cases.
+
+## Overview
+
+The GR00T workflow consists of two main phases:
+
+1. **Post-training (Finetuning)**: Train or finetune GR00T models on your custom robot data
+2. **Deployment**: Run optimized inference on robot hardware for real-time control
+
+![Workflow Diagram](/images/GR00T-reference-arch-diagram.png)
+
+## Recommended starter kit
+
+For teams getting started with GR00T, the recommended configuration includes:
+
+### RTX PRO Server (Training)
+
+| Component | Specification |
+|-----------|---------------|
+| **GPUs** | 8x RTX PRO 6000 Blackwell Server Edition GPUs |
+| **GPU Memory** | 800 GB total GPU memory |
+| **Virtualization** | VMware RedHat |
+| **Containerization** | Kubernetes |
+| **Storage** | Scalable, interoperable, secure storage |
+
+### Jetson AGX Thor Developer Kit (Deployment)
+
+| Component | Specification |
+|-----------|---------------|
+| **GPU** | Blackwell GPU with 2560 CUDA cores |
+| **CPU** | 14-core Arm Neoverse-V3AE CPU |
+| **Memory** | 128GB LP5 memory |
+
+## Center of excellence
+
+For larger-scale deployments and research centers:
+
+### DGX B300 Server (Training)
+
+| Component | Specification |
+|-----------|---------------|
+| **GPUs** | NVIDIA Blackwell Ultra GPUs |
+| **GPU Memory** | 2.3 TB total GPU memory |
+| **Virtualization** | VMware RedHat |
+| **Containerization** | Kubernetes |
+| **Storage** | Scalable, interoperable, secure storage |
+
+### Jetson AGX Thor Developer Kit (Deployment)
+
+| Component | Specification |
+|-----------|---------------|
+| **GPU** | Blackwell GPU with 2560 CUDA cores |
+| **CPU** | 14-core Arm Neoverse-V3AE CPU |
+| **Memory** | 128GB LP5 memory |
+
+## Training performance
+
+GR00T finetuning performance varies based on GPU hardware:
+
+<Note>
+We recommend using 1 H100 node or L40 node for optimal finetuning performance. Other hardware configurations (e.g., A6000) will also work but may require longer training time.
+</Note>
+
+### Batch size recommendations
+
+Optimal batch size depends on:
+- Available GPU memory
+- Which model components are being tuned (full model vs. adapter-only)
+- Number of GPUs available
+
+For best results, maximize your batch size based on available hardware and train for a few thousand steps.
+
+### Multi-GPU training
+
+GR00T supports distributed training across multiple GPUs:
+
+```bash
+export NUM_GPUS=8
+
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 uv run python \
+    gr00t/experiment/launch_finetune.py \
+    --base-model-path nvidia/GR00T-N1.6-3B \
+    --dataset-path <DATASET_PATH> \
+    --embodiment-tag NEW_EMBODIMENT \
+    --num-gpus $NUM_GPUS \
+    --global-batch-size 32 \
+    --output-dir <OUTPUT_PATH>
+```
+
+## Inference performance
+
+GR00T N1.6 3B inference timing (4 denoising steps, single view):
+
+### Desktop GPUs
+
+| Device | Mode | Data Processing | Backbone | Action Head | E2E | Frequency |
+|--------|------|-----------------|----------|-------------|-----|------------|
+| RTX 5090 | torch.compile | 2 ms | 18 ms | 16 ms | 37 ms | 27.3 Hz |
+| RTX 5090 | TensorRT | 2 ms | 18 ms | 11 ms | 31 ms | 32.1 Hz |
+| RTX 4090 | torch.compile | 2 ms | 25 ms | 17 ms | 44 ms | 22.8 Hz |
+| RTX 4090 | TensorRT | 2 ms | 24 ms | 16 ms | 43 ms | 23.3 Hz |
+
+### Data center GPUs
+
+| Device | Mode | Data Processing | Backbone | Action Head | E2E | Frequency |
+|--------|------|-----------------|----------|-------------|-----|------------|
+| H100 | torch.compile | 4 ms | 23 ms | 11 ms | 38 ms | 26.3 Hz |
+| H100 | TensorRT | 4 ms | 22 ms | 10 ms | 36 ms | 27.9 Hz |
+
+### Edge devices
+
+| Device | Mode | Data Processing | Backbone | Action Head | E2E | Frequency |
+|--------|------|-----------------|----------|-------------|-----|------------|
+| Thor | torch.compile | 5 ms | 39 ms | 61 ms | 105 ms | 9.5 Hz |
+| Thor | TensorRT | 5 ms | 38 ms | 49 ms | 92 ms | 10.9 Hz |
+| Orin | torch.compile | 6 ms | 93 ms | 101 ms | 199 ms | 5.0 Hz |
+| Orin | TensorRT | 6 ms | 95 ms | 72 ms | 173 ms | 5.8 Hz |
+
+<Note>
+The backbone (Vision Encoder + Language Model) timing is the same across all modes. Only the **Action Head (DiT)** is optimized with torch.compile or TensorRT, which is why you see significant speedups in the Action Head column while the Backbone column remains constant.
+</Note>
+
+### Speedup vs PyTorch eager mode
+
+| Device | torch.compile | TensorRT |
+|--------|---------------|----------|
+| RTX 5090 | 1.58x | 1.86x |
+| H100 | 2.02x | 2.14x |
+| RTX 4090 | 1.87x | 1.92x |
+| Thor | 1.11x | 1.27x |
+| Orin | 1.50x | 1.73x |
+
+## Minimum requirements
+
+### For training/finetuning
+
+- **GPU**: NVIDIA GPU with 24GB+ VRAM (e.g., RTX 4090, A6000, or better)
+- **CUDA**: Version 12.4 (recommended) or 11.8
+- **System Memory**: 32GB+ RAM recommended
+- **Storage**: 100GB+ free space for datasets and checkpoints
+
+### For inference only
+
+- **GPU**: NVIDIA GPU with 8GB+ VRAM
+- **CUDA**: Version 12.4 (recommended) or 11.8
+- **System Memory**: 16GB+ RAM
+- **Storage**: 50GB+ free space for model checkpoints
+
+### For edge deployment
+
+- **Jetson AGX Thor**: For optimal performance
+- **Jetson AGX Orin**: Supported but with reduced inference speed
+
+<Warning>
+GR00T requires CUDA-capable NVIDIA GPUs. CPU-only inference is not supported for production use due to performance constraints.
+</Warning>
+
+## CUDA compatibility
+
+| CUDA Version | Status | Notes |
+|--------------|--------|-------|
+| 12.8 | Tested | For RTX 5090, use `flash-attn==2.8.0.post2`, `pytorch-cu128` |
+| 12.4 | Recommended | Officially tested and recommended |
+| 11.8 | Supported | Requires manual installation of compatible `flash-attn==2.8.2` |
+
+## Storage considerations
+
+### Dataset storage
+
+- Robot demonstration datasets can range from 10GB to 1TB+ depending on:
+  - Number of episodes
+  - Video resolution
+  - Number of camera views
+  - Episode length
+
+- Use fast storage (NVMe SSD) for training datasets to avoid I/O bottlenecks
+
+### Model checkpoints
+
+- Base GR00T N1.6 3B model: ~6GB
+- Finetuned checkpoints: ~6GB each
+- ONNX exported models: ~3GB
+- TensorRT engines: ~2GB (GPU-specific)
+
+### Recommended storage setup
+
+- **Training server**: 1TB+ NVMe SSD for datasets and checkpoints
+- **Deployment device**: 64GB+ for model checkpoints and TensorRT engines
+
+## Network requirements
+
+### Model download
+
+- First-time model download from Hugging Face: ~6GB bandwidth
+- Ensure stable internet connection for initial setup
+
+### Distributed training
+
+- For multi-node training, high-bandwidth interconnect (InfiniBand or 100GbE) recommended
+- For single-node multi-GPU, PCIe 4.0 or higher
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/getting-started/installation">
+    Install GR00T on your hardware
+  </Card>
+  <Card title="Quick start" icon="rocket" href="/getting-started/quickstart">
+    Run your first inference example
+  </Card>
+  <Card title="TensorRT optimization" icon="gauge-high" href="/deployment/tensorrt-optimization">
+    Optimize inference with TensorRT
+  </Card>
+  <Card title="Finetuning" icon="graduation-cap" href="/training/finetuning">
+    Finetune GR00T on your data
+  </Card>
+</CardGroup>

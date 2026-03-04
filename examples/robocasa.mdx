@@ -1,0 +1,116 @@
+---
+title: RoboCasa benchmark
+description: Large-scale kitchen simulation with 2,500+ assets and 100 manipulation tasks
+---
+
+RoboCasa is a large-scale simulation framework for training robots to perform everyday kitchen tasks. It features realistic environments with over 2,500 3D assets and 100 diverse manipulation tasks using the Panda robot with Omron gripper.
+
+For more information, see the [RoboCasa website](https://robocasa.ai/).
+
+## Benchmark results
+
+Checkpoint: [nvidia/GR00T-N1.6-3B](https://huggingface.co/nvidia/GR00T-N1.6-3B) (zero-shot evaluation)
+
+| Task | Success rate |
+|------|-------------|
+| CoffeeSetupMug | 31.0% |
+| CoffeeServeMug | 63.5% |
+| CoffeePressButton | 98.5% |
+| OpenSingleDoor | 81.5% |
+| OpenDoubleDoor | 39.0% |
+| CloseSingleDoor | 96.0% |
+| CloseDoubleDoor | 88.5% |
+| OpenDrawer | 81.1% |
+| CloseDrawer | 100.0% |
+| TurnOnMicrowave | 91.5% |
+| TurnOffMicrowave | 96.0% |
+| PnPCounterToCab | 47.5% |
+| PnPCabToCounter | 41.0% |
+| PnPCounterToSink | 46.0% |
+| PnPSinkToCounter | 50.0% |
+| PnPCounterToMicrowave | 19.0% |
+| PnPMicrowaveToCounter | 24.5% |
+| PnPCounterToStove | 63.2% |
+| PnPStoveToCounter | 54.5% |
+| TurnOnSinkFaucet | 89.0% |
+| TurnOffSinkFaucet | 93.5% |
+| TurnSinkSpout | 87.0% |
+| TurnOnStove | 76.5% |
+| TurnOffStove | 31.0% |
+| **Average** | **66.22%** |
+
+## Evaluation
+
+### Setup environment
+
+Install the required dependencies (only needs to be done once):
+
+```bash
+sudo apt update
+sudo apt install libegl1-mesa-dev libglu1-mesa
+bash gr00t/eval/sim/robocasa/setup_RoboCasa.sh
+```
+
+### Run evaluation
+
+<Steps>
+  <Step title="Start policy server">
+    In Terminal 1:
+    ```bash
+    uv run python gr00t/eval/run_gr00t_server.py \
+        --model-path nvidia/GR00T-N1.6-3B \
+        --embodiment-tag ROBOCASA_PANDA_OMRON \
+        --use-sim-policy-wrapper
+    ```
+  </Step>
+  
+  <Step title="Start evaluation client">
+    In Terminal 2:
+    ```bash
+    gr00t/eval/sim/robocasa/robocasa_uv/.venv/bin/python gr00t/eval/rollout_policy.py \
+        --n_episodes 10 \
+        --policy_client_host 127.0.0.1 \
+        --policy_client_port 5555 \
+        --max_episode_steps=720 \
+        --env_name robocasa_panda_omron/OpenDrawer_PandaOmron_Env \
+        --n_action_steps 8 \
+        --n_envs 5
+    ```
+  </Step>
+</Steps>
+
+## Available tasks
+
+All tasks use the `robocasa_panda_omron/` prefix with `_PandaOmron_Env` suffix:
+
+### Coffee station tasks
+- `CoffeeSetupMug_PandaOmron_Env` - Set up mug for coffee
+- `CoffeeServeMug_PandaOmron_Env` - Serve coffee in mug
+- `CoffeePressButton_PandaOmron_Env` - Press coffee machine button
+
+### Door and drawer tasks
+- `OpenSingleDoor_PandaOmron_Env` - Open single cabinet door
+- `OpenDoubleDoor_PandaOmron_Env` - Open double cabinet doors
+- `CloseSingleDoor_PandaOmron_Env` - Close single cabinet door
+- `CloseDoubleDoor_PandaOmron_Env` - Close double cabinet doors
+- `OpenDrawer_PandaOmron_Env` - Open drawer
+- `CloseDrawer_PandaOmron_Env` - Close drawer
+
+### Appliance tasks
+- `TurnOnMicrowave_PandaOmron_Env` - Turn on microwave
+- `TurnOffMicrowave_PandaOmron_Env` - Turn off microwave
+- `TurnOnSinkFaucet_PandaOmron_Env` - Turn on faucet
+- `TurnOffSinkFaucet_PandaOmron_Env` - Turn off faucet
+- `TurnSinkSpout_PandaOmron_Env` - Rotate sink spout
+- `TurnOnStove_PandaOmron_Env` - Turn on stove burner
+- `TurnOffStove_PandaOmron_Env` - Turn off stove burner
+
+### Pick and place tasks
+- `PnPCounterToCab_PandaOmron_Env` - Counter to cabinet
+- `PnPCabToCounter_PandaOmron_Env` - Cabinet to counter
+- `PnPCounterToSink_PandaOmron_Env` - Counter to sink
+- `PnPSinkToCounter_PandaOmron_Env` - Sink to counter
+- `PnPCounterToMicrowave_PandaOmron_Env` - Counter to microwave
+- `PnPMicrowaveToCounter_PandaOmron_Env` - Microwave to counter
+- `PnPCounterToStove_PandaOmron_Env` - Counter to stove
+- `PnPStoveToCounter_PandaOmron_Env` - Stove to counter

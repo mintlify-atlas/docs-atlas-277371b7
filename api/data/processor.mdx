@@ -1,0 +1,216 @@
+---
+title: Processor classes
+description: Data processor interface for converting raw observations into model inputs
+---
+
+Processors convert raw VLA step data into model-ready inputs by handling tokenization, normalization, and batching.
+
+## BaseProcessor
+
+```python
+from gr00t.data.interfaces import BaseProcessor
+```
+
+Abstract base class for data processors. Inherits from `transformers.ProcessorMixin`.
+
+### Methods
+
+#### \_\_call\_\_
+
+```python
+def __call__(self, messages: list[dict[str, Any]]) -> dict[str, Any]
+```
+
+Process a list of messages and return a dictionary of model inputs.
+
+<ParamField path="messages" type="list[dict[str, Any]]" required>
+  List of messages to process. Each message is a dictionary with:
+  - `type`: MessageType enum value
+  - `content`: Message content (VLAStepData for EPISODE_STEP messages)
+  - `role`: Optional role for TEXT messages ("user" or "assistant")
+</ParamField>
+
+<ResponseField name="return" type="dict[str, Any]">
+  Dictionary of model inputs ready for forward pass.
+</ResponseField>
+
+##### Usage example
+
+```python
+from gr00t.data.types import MessageType, VLAStepData
+from gr00t.data.interfaces import BaseProcessor
+
+# Single step
+messages = [
+    {"type": MessageType.EPISODE_STEP.value, "content": vla_step_data},
+]
+model_input = processor(messages)
+
+# Full episode with text
+messages = [
+    {"type": MessageType.START_OF_EPISODE.value, "content": ""},
+    {"type": MessageType.EPISODE_STEP.value, "content": vla_step_data_1},
+    {"type": MessageType.TEXT.value, "role": "user", "content": "Pick up the apple"},
+    {"type": MessageType.TEXT.value, "role": "assistant", "content": "Moving left hand"},
+    {"type": MessageType.EPISODE_STEP.value, "content": vla_step_data_2},
+    {"type": MessageType.EPISODE_STEP.value, "content": vla_step_data_3},
+    {"type": MessageType.END_OF_EPISODE.value, "content": ""},
+]
+model_input = processor(messages)
+```
+
+#### decode_action
+
+```python
+def decode_action(
+    self,
+    action: np.ndarray,
+    embodiment_tag: EmbodimentTag,
+    state: dict[str, np.ndarray] | None = None,
+) -> dict[str, np.ndarray]
+```
+
+Decode the action from the model output.
+
+<ParamField path="action" type="np.ndarray" required>
+  Raw action array from model output.
+</ParamField>
+
+<ParamField path="embodiment_tag" type="EmbodimentTag" required>
+  Embodiment tag to determine action decoding strategy.
+</ParamField>
+
+<ParamField path="state" type="dict[str, np.ndarray] | None" default="None">
+  Optional current state dictionary for computing relative actions.
+</ParamField>
+
+<ResponseField name="return" type="dict[str, np.ndarray]">
+  Dictionary mapping action names to decoded action arrays.
+</ResponseField>
+
+#### set_statistics
+
+```python
+def set_statistics(
+    self,
+    statistics: dict[str, Any],
+    override: bool = False,
+) -> None
+```
+
+Set normalization statistics for the processor.
+
+<ParamField path="statistics" type="dict[str, Any]" required>
+  Dictionary containing normalization statistics (mean, std, min, max, q01, q99) for each modality and joint group.
+  
+  Structure: `{embodiment_tag: {modality: {joint_group: {stat_type: values}}}}`
+</ParamField>
+
+<ParamField path="override" type="bool" default="False">
+  Whether to override existing statistics.
+</ParamField>
+
+#### get_modality_configs
+
+```python
+def get_modality_configs(self) -> dict[str, dict[str, ModalityConfig]]
+```
+
+Get the modality configurations.
+
+<ResponseField name="return" type="dict[str, dict[str, ModalityConfig]]">
+  Nested dictionary where `modality_configs[embodiment_tag][modality] = ModalityConfig`.
+</ResponseField>
+
+#### train
+
+```python
+def train(self) -> None
+```
+
+Set the processor to training mode.
+
+#### eval
+
+```python
+def eval(self) -> None
+```
+
+Set the processor to evaluation mode.
+
+#### collator
+
+```python
+@property
+def collator(self)
+```
+
+Get the data collator for batching.
+
+<ResponseField name="return" type="callable">
+  Collator function that batches processed samples.
+</ResponseField>
+
+## Complete workflow
+
+```python
+from gr00t.data.interfaces import BaseProcessor
+from gr00t.data.types import MessageType, VLAStepData
+from gr00t.data.embodiment_tags import EmbodimentTag
+import numpy as np
+
+# 1. Create processor instance (implementation-specific)
+processor = MyProcessor()  # e.g., SequenceVLAProcessor
+
+# 2. Set normalization statistics
+statistics = {
+    "unitree_g1": {
+        "state": {
+            "left_arm": {
+                "mean": [0.0, 0.0, 0.0],
+                "std": [1.0, 1.0, 1.0],
+                "min": [-1.0, -1.0, -1.0],
+                "max": [1.0, 1.0, 1.0],
+                "q01": [-0.9, -0.9, -0.9],
+                "q99": [0.9, 0.9, 0.9],
+            },
+        },
+        "action": {
+            "left_arm": {
+                "mean": [0.0, 0.0, 0.0],
+                "std": [0.5, 0.5, 0.5],
+                "min": [-2.0, -2.0, -2.0],
+                "max": [2.0, 2.0, 2.0],
+                "q01": [-1.8, -1.8, -1.8],
+                "q99": [1.8, 1.8, 1.8],
+            },
+        },
+    },
+}
+processor.set_statistics(statistics)
+
+# 3. Process messages
+vla_step = VLAStepData(
+    images={"front_cam": [np.random.rand(224, 224, 3)]},
+    states={"left_arm": np.random.rand(3)},
+    actions={"left_arm": np.random.rand(16, 3)},
+    text="Pick up the apple",
+    embodiment=EmbodimentTag.UNITREE_G1,
+)
+
+messages = [{"type": MessageType.EPISODE_STEP.value, "content": vla_step}]
+model_input = processor(messages)
+
+# 4. Run model inference
+model_output = model(**model_input)
+# or for generation:
+# model_output = model.generate(**model_input)
+
+# 5. Decode action
+current_state = {"left_arm": np.array([0.1, 0.2, 0.3])}
+decoded_action = processor.decode_action(
+    model_output["action"],
+    embodiment_tag=EmbodimentTag.UNITREE_G1,
+    state=current_state,
+)
+```

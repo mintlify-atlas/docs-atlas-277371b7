@@ -1,0 +1,159 @@
+---
+title: Installation
+description: Install Isaac GR00T with uv or Docker
+---
+
+GR00T uses [uv](https://github.com/astral-sh/uv) for fast, reproducible dependency management. You can also use Docker for a containerized setup.
+
+## Prerequisites
+
+- **uv v0.8.4+** is required to parse `[tool.uv.extra-build-dependencies]` in `pyproject.toml` (needed for building `flash-attn`)
+- NVIDIA GPU with compatible drivers
+- CUDA 12.4 is recommended and officially tested (CUDA 11.8 also verified to work)
+- For RTX-5090: Tested with CUDA 12.8, `flash-attn==2.8.0.post2`, `pytorch-cu128`
+
+<Note>
+If using CUDA 11.8, you must install a compatible version of `flash-attn` manually (e.g., `flash-attn==2.8.2` confirmed working with CUDA 11.8).
+</Note>
+
+## Installation with uv
+
+<Steps>
+  <Step title="Clone the repository">
+    GR00T relies on submodules for certain dependencies. Include them when cloning:
+
+    ```bash
+    git clone --recurse-submodules https://github.com/NVIDIA/Isaac-GR00T
+    cd Isaac-GR00T
+    ```
+
+    If you've already cloned without submodules, initialize them separately:
+
+    ```bash
+    git submodule update --init --recursive
+    ```
+  </Step>
+
+  <Step title="Install uv">
+    If you don't have uv installed, follow the [uv installation guide](https://github.com/astral-sh/uv#installation).
+  </Step>
+
+  <Step title="Create environment and install dependencies">
+    After installing uv, create the environment and install GR00T:
+
+    ```bash
+    uv sync --python 3.10
+    uv pip install -e .
+    ```
+
+    This installs the core dependencies including:
+    - PyTorch 2.7.1
+    - Transformers 4.51.3
+    - Diffusers 0.35.1
+    - Flash Attention 2.7.4
+    - And other required packages
+  </Step>
+
+  <Step title="Optional: Install TensorRT for faster inference">
+    For 2x faster inference with TensorRT acceleration:
+
+    ```bash
+    uv sync --extra tensorrt
+    ```
+
+    This includes ONNX and TensorRT dependencies for optimized deployment.
+  </Step>
+</Steps>
+
+## Installation with Docker
+
+For a containerized setup that avoids system-level dependency conflicts, use the Docker setup.
+
+### Prerequisites
+
+- Docker (version 20.10+) with [post-installation setup](https://docs.docker.com/engine/install/linux-postinstall/) to run without sudo
+- NVIDIA Container Toolkit ([installation guide](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html))
+- NVIDIA GPU with compatible drivers
+- Bash shell
+- Sufficient disk space (several GB)
+
+### Build and run
+
+<Steps>
+  <Step title="Navigate to the docker directory">
+    ```bash
+    cd docker
+    ```
+  </Step>
+
+  <Step title="Build the Docker image">
+    The build process uses `nvcr.io/nvidia/pytorch:25.04-py3` as the base image:
+
+    ```bash
+    bash build.sh
+    ```
+
+    This installs all dependencies and sets up the GR00T codebase at `/workspace/gr00t/`.
+  </Step>
+
+  <Step title="Run the container">
+    <CodeGroup>
+      ```bash Interactive shell (baked code)
+      docker run -it --rm --gpus all gr00t-dev /bin/bash
+      ```
+
+      ```bash Development mode (mounted code)
+      docker run -it --rm --gpus all \
+          -v $(pwd)/..:/workspace/gr00t \
+          gr00t-dev /bin/bash
+      ```
+    </CodeGroup>
+
+    <Note>
+    Development mode mounts your local codebase for live editing. Run this from the `docker/` directory. Changes to your local GR00T code will be immediately reflected inside the container.
+    </Note>
+  </Step>
+</Steps>
+
+### Docker troubleshooting
+
+<AccordionGroup>
+  <Accordion title="GPU not detected">
+    - Verify NVIDIA Container Toolkit: `nvidia-container-toolkit --version`
+    - Restart Docker: `sudo systemctl restart docker`
+    - Test GPU access: `docker run --rm --gpus all nvidia/cuda:12.0.0-base-ubuntu22.04 nvidia-smi`
+  </Accordion>
+
+  <Accordion title="Permission errors">
+    Use `sudo` with Docker commands, or add your user to the `docker` group:
+    ```bash
+    sudo usermod -aG docker $USER
+    ```
+    Log out and back in for the changes to take effect.
+  </Accordion>
+
+  <Accordion title="Build failures">
+    - Check disk space: `df -h`
+    - Clean Docker: `docker system prune -a`
+    - Rebuild without cache: `sudo bash build.sh --no-cache`
+  </Accordion>
+</AccordionGroup>
+
+## Verify installation
+
+After installation, verify that GR00T is installed correctly:
+
+```bash
+uv run python -c "import gr00t; print('GR00T successfully installed!')"
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quick start" icon="rocket" href="/getting-started/quickstart">
+    Get started with a quick inference example
+  </Card>
+  <Card title="Hardware requirements" icon="server" href="/getting-started/hardware-requirements">
+    Check hardware recommendations for training and deployment
+  </Card>
+</CardGroup>

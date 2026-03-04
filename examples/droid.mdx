@@ -1,0 +1,69 @@
+---
+title: DROID benchmark
+description: Real-world manipulation with the DROID dataset
+---
+
+GR00T N1.6-DROID is fine-tuned on the [DROID dataset](https://droid-dataset.github.io/), a large-scale dataset for real-world robotic manipulation. This checkpoint can be deployed on DROID-compatible robot hardware.
+
+Checkpoint: [nvidia/GR00T-N1.6-DROID](https://huggingface.co/nvidia/GR00T-N1.6-DROID)
+
+## Deployment
+
+### Setup inference server
+
+<Steps>
+  <Step title="Start policy server">
+    On a machine with a sufficiently powerful GPU, start the policy server from the root folder of the repository:
+    
+    ```bash
+    uv run python gr00t/eval/run_gr00t_server.py \
+        --embodiment-tag OXE_DROID \
+        --use_sim_policy_wrapper \
+        --model-path=nvidia/GR00T-N1.6-DROID
+    ```
+  </Step>
+</Steps>
+
+### Setup robot control
+
+<Steps>
+  <Step title="Install DROID package">
+    Install the DROID package on the robot control laptop/workstation following the [official instructions](https://droid-dataset.github.io/droid/software-setup/host-installation.html#configuring-the-laptopworkstation).
+  </Step>
+  
+  <Step title="Install GR00T dependencies">
+    Install additional dependencies for the GR00T control script in the DROID environment:
+    ```bash
+    pip install tyro moviepy==1.0.3 pydantic numpy==1.26.4
+    ```
+  </Step>
+  
+  <Step title="Configure cameras">
+    Enter the camera IDs for your ZED cameras in `examples/DROID/main_gr00t.py`.
+  </Step>
+  
+  <Step title="Start control script">
+    Run the control script with your chosen external camera:
+    ```bash
+    python examples/DROID/main_gr00t.py --external_camera="left"  # or "right"
+    ```
+  </Step>
+</Steps>
+
+## Hardware requirements
+
+For the DROID setup, you'll need:
+
+- GPU machine for running the policy server (RTX 4090, H100, or similar)
+- DROID-compatible robot hardware
+- ZED cameras configured as per DROID specifications
+- Network connection between control laptop and GPU server
+
+## Dataset information
+
+The [DROID dataset](https://droid-dataset.github.io/) provides:
+
+- Large-scale real-world manipulation demonstrations
+- Multi-camera observations
+- Diverse manipulation tasks
+- Standardized data format compatible with GR00T's LeRobot schema

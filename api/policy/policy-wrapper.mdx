@@ -1,0 +1,250 @@
+---
+title: Gr00tSimPolicyWrapper
+description: Policy wrapper for compatibility with GR00T simulation environments
+---
+
+## Overview
+
+The `Gr00tSimPolicyWrapper` adapts the `Gr00tPolicy` to work with existing GR00T simulation environments that use flat observation/action keys (e.g., `"video.camera_name"`, `"state.joint_positions"`, `"action.joints"`).
+
+<Warning>
+  This wrapper is specifically designed for retro-fitting the GR00T policy with existing GR00T simulation infrastructure. If you are building new environments or using custom robots, you should use `Gr00tPolicy` directly with the nested observation format.
+</Warning>
+
+## Class definition
+
+```python gr00t/policy/gr00t_policy.py
+class Gr00tSimPolicyWrapper(PolicyWrapper):
+    """Wrapper for Gr00tPolicy to enable compatibility with existing Gr00t simulation environments.
+    
+    Key transformations:
+    - Observation keys: 'video.cam' -> observation['video']['cam']
+    - Observation keys: 'state.joints' -> observation['state']['joints']
+    - Language keys: 'task' or 'annotation.human.coarse_action' -> observation['language']['task']
+    - Action keys: action['joints'] -> 'action.joints'
+    """
+```
+
+## Constructor
+
+<ParamField path="policy" type="Gr00tPolicy" required>
+  The `Gr00tPolicy` instance to wrap
+</ParamField>
+
+<ParamField path="strict" type="bool" default="True">
+  Whether to enforce strict validation
+</ParamField>
+
+## Methods
+
+### get_action
+
+Generate actions from flat observation format.
+
+```python
+def get_action(
+    self, 
+    observation: dict[str, Any], 
+    options: dict[str, Any] | None = None
+) -> tuple[dict[str, Any], dict[str, Any]]
+```
+
+<ParamField path="observation" type="dict[str, Any]" required>
+  Flat observation dictionary with keys like:
+  - `"video.camera_name"`: np.ndarray[np.uint8, (B, T, H, W, C)]
+  - `"state.state_name"`: np.ndarray[np.float32, (B, T, D)]
+  - `"task"` or `"annotation.human.coarse_action"`: tuple[str] or list[str] with shape (B,)
+</ParamField>
+
+<ParamField path="options" type="dict[str, Any] | None">
+  Optional parameters
+</ParamField>
+
+<ResponseField name="actions" type="dict[str, np.ndarray]">
+  Dictionary of action arrays with flat keys like `"action.joint_positions"` with shape (B, T, D)
+</ResponseField>
+
+<ResponseField name="info" type="dict[str, Any]">
+  Additional information dictionary
+</ResponseField>
+
+### get_modality_config
+
+Get the modality configuration from the underlying policy.
+
+```python
+def get_modality_config(self) -> dict[str, ModalityConfig]
+```
+
+<ResponseField name="modality_configs" type="dict[str, ModalityConfig]">
+  Dictionary mapping modality names to their configurations
+</ResponseField>
+
+### reset
+
+Reset the wrapped policy.
+
+```python
+def reset(self, options: dict[str, Any] | None = None) -> dict[str, Any]
+```
+
+<ParamField path="options" type="dict[str, Any] | None">
+  Optional reset parameters
+</ParamField>
+
+<ResponseField name="info" type="dict[str, Any]">
+  Information dictionary after reset
+</ResponseField>
+
+### check_observation
+
+Validate flat observation structure.
+
+```python
+def check_observation(self, observation: dict[str, Any]) -> None
+```
+
+<ParamField path="observation" type="dict[str, Any]" required>
+  Flat observation dictionary to validate
+</ParamField>
+
+### check_action
+
+Validate flat action structure.
+
+```python
+def check_action(self, action: dict[str, Any]) -> None
+```
+
+<ParamField path="action" type="dict[str, Any]" required>
+  Flat action dictionary to validate
+</ParamField>
+
+## Usage example
+
+```python
+from gr00t.policy.gr00t_policy import Gr00tPolicy, Gr00tSimPolicyWrapper
+from gr00t.data.embodiment_tags import EmbodimentTag
+import numpy as np
+
+# Initialize base policy
+base_policy = Gr00tPolicy(
+    embodiment_tag=EmbodimentTag.GR1,
+    model_path="nvidia/GR00T-N1.6-3B",
+    device="cuda:0"
+)
+
+# Wrap for GR00T sim environment compatibility
+policy = Gr00tSimPolicyWrapper(base_policy, strict=True)
+
+# Flat observation format (GR00T sim style)
+observation = {
+    "video.head_camera": np.zeros((1, 1, 224, 224, 3), dtype=np.uint8),
+    "state.joint_positions": np.zeros((1, 1, 14), dtype=np.float32),
+    "task": ("pick up the apple",),  # Tuple of strings
+}
+
+# Generate action (returns flat format)
+action, info = policy.get_action(observation)
+print(action.keys())  # Output: dict_keys(['action.joint_positions'])
+print(f"Action shape: {action['action.joint_positions'].shape}")
+# Output: Action shape: (1, 8, 14)
+```
+
+## Observation format transformation
+
+The wrapper transforms between flat and nested formats:
+
+### Input (flat format for GR00T sim):
+```python
+observation = {
+    "video.camera1": np.ndarray[np.uint8, (B, T, H, W, C)],
+    "video.camera2": np.ndarray[np.uint8, (B, T, H, W, C)],
+    "state.joints": np.ndarray[np.float32, (B, T, D)],
+    "task": ("instruction",),  # Tuple of B strings
+}
+```
+
+### Internal (nested format for Gr00tPolicy):
+```python
+observation = {
+    "video": {
+        "camera1": np.ndarray[np.uint8, (B, T, H, W, C)],
+        "camera2": np.ndarray[np.uint8, (B, T, H, W, C)],
+    },
+    "state": {
+        "joints": np.ndarray[np.float32, (B, T, D)],
+    },
+    "language": {
+        "task": [["instruction"]],  # List[List[str]] with shape (B, T)
+    }
+}
+```
+
+## Action format transformation
+
+### Output from Gr00tPolicy (nested format):
+```python
+action = {
+    "joint_positions": np.ndarray[np.float32, (B, T, D)],
+}
+```
+
+### Transformed output (flat format for GR00T sim):
+```python
+action = {
+    "action.joint_positions": np.ndarray[np.float32, (B, T, D)],
+}
+```
+
+## DC environment compatibility
+
+The wrapper includes special handling for DC (DeepMind Control) environments:
+
+<Note>
+  For DC environments that use `"annotation.human.coarse_action"` instead of `"task"` for language instructions, the wrapper automatically handles this mapping.
+</Note>
+
+```python
+# DC environment observation
+observation = {
+    "video.front_camera": np.ndarray[...],
+    "state.qpos": np.ndarray[...],
+    "annotation.human.coarse_action": ("grasp the object",),  # DC-specific key
+}
+
+# Wrapper automatically maps to "task" internally
+```
+
+## Properties
+
+<ResponseField name="policy" type="Gr00tPolicy">
+  The underlying `Gr00tPolicy` instance
+</ResponseField>
+
+## When to use this wrapper
+
+Use `Gr00tSimPolicyWrapper` when:
+- Working with existing GR00T simulation environments
+- Your environment uses flat observation keys like `"video.camera"`, `"state.joints"`
+- Your environment expects flat action keys like `"action.joints"`
+- Integrating with legacy GR00T infrastructure
+
+Do **not** use this wrapper when:
+- Building new environments (use `Gr00tPolicy` directly with nested format)
+- Working with custom robots (use `Gr00tPolicy` directly)
+- You have control over the observation/action format
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="Gr00tPolicy" icon="brain" href="/api/policy/gr00t-policy">
+    Core policy class (use directly for new environments)
+  </Card>
+  <Card title="Policy API guide" icon="book" href="/guides/policy-api">
+    Complete guide to using the policy API
+  </Card>
+  <Card title="PolicyClient" icon="network-wired" href="/api/policy/server-client">
+    Client for remote inference
+  </Card>
+</CardGroup>

@@ -1,0 +1,294 @@
+---
+title: "GR00T model class"
+description: "Vision-Language-Action model with backbone and action head for robotic control"
+---
+
+## Gr00tN1d6
+
+The main GR00T model class that combines a vision-language backbone with an action head for flow matching diffusion-based policy learning.
+
+```python
+from transformers import AutoModel
+import gr00t.model  # Register custom models
+
+# Load from pretrained checkpoint
+model = AutoModel.from_pretrained(
+    "path/to/checkpoint",
+    tune_llm=False,
+    tune_visual=False,
+    tune_projector=True,
+    tune_diffusion_model=True
+)
+model.eval()
+model.to(device="cuda", dtype=torch.bfloat16)
+
+# Forward pass for training
+outputs = model(inputs)
+loss = outputs["loss"]
+
+# Generate actions for inference
+action_outputs = model.get_action(inputs)
+actions = action_outputs["action_pred"]  # (B, action_horizon, action_dim)
+```
+
+### Initialization
+
+<ParamField path="config" type="Gr00tN1d6Config" required>
+  Model configuration object containing all hyperparameters
+</ParamField>
+
+<ParamField path="transformers_loading_kwargs" type="dict" default="{'trust_remote_code': True}">
+  Dictionary with transformers loading parameters:
+  - `trust_remote_code`: Whether to trust remote code when loading from HuggingFace Hub
+  - `local_files_only`: Whether to only use local files
+  - `revision`: Specific model revision to use
+  - `cache_dir`: Directory to cache downloaded models
+  - `token`: HuggingFace access token for gated models
+</ParamField>
+
+### Loading from pretrained
+
+The recommended way to load a GR00T model is using the `AutoModel.from_pretrained` method:
+
+```python
+from transformers import AutoModel
+import gr00t.model
+
+model = AutoModel.from_pretrained(
+    "path/to/checkpoint",
+    # Training configuration overrides
+    tune_llm=False,
+    tune_visual=False,
+    tune_projector=True,
+    tune_diffusion_model=True,
+    tune_vlln=True,
+    state_dropout_prob=0.0,
+    backbone_trainable_params_fp32=True,
+    # Transformers loading kwargs
+    trust_remote_code=True,
+    local_files_only=False,
+    cache_dir="/path/to/cache",
+    token="hf_..."
+)
+```
+
+<Note>
+During training, transformers parameters are passed from the training config. During inference (e.g., from_pretrained), defaults are used.
+</Note>
+
+### Methods
+
+#### forward
+
+Forward pass through the complete model for training.
+
+```python
+def forward(self, inputs: dict) -> BatchFeature
+```
+
+<ParamField path="inputs" type="dict" required>
+  Dictionary containing:
+  - Vision-language inputs (images, text, attention masks)
+  - Action inputs (state, action, embodiment_id, action_mask)
+</ParamField>
+
+<ResponseField name="return" type="BatchFeature">
+  BatchFeature containing:
+  - `loss`: Combined action prediction loss
+  - `action_loss`: Per-timestep action loss
+  - `action_mask`: Mask for valid actions
+  - `backbone_features`: Vision-language embeddings
+  - `state_features`: Encoded state features
+</ResponseField>
+
+**Example:**
+
+```python
+inputs = {
+    "pixel_values": ...,
+    "input_ids": ...,
+    "attention_mask": ...,
+    "state": ...,
+    "action": ...,
+    "embodiment_id": ...,
+    "action_mask": ...
+}
+
+outputs = model(inputs)
+loss = outputs["loss"]
+loss.backward()
+```
+
+#### get_action
+
+Generate actions using flow matching diffusion process for inference.
+
+```python
+@torch.no_grad()
+def get_action(self, inputs: dict) -> BatchFeature
+```
+
+<ParamField path="inputs" type="dict" required>
+  Dictionary containing:
+  - Vision-language inputs (images, text, attention masks)
+  - State and embodiment_id (no ground truth actions needed)
+</ParamField>
+
+<ResponseField name="return" type="BatchFeature">
+  BatchFeature containing:
+  - `action_pred`: Predicted actions tensor of shape `(B, action_horizon, action_dim)`
+  - `backbone_features`: Vision-language embeddings
+  - `state_features`: Encoded state features
+</ResponseField>
+
+**Example:**
+
+```python
+with torch.no_grad():
+    action_outputs = model.get_action(inputs)
+    actions = action_outputs["action_pred"]  # (B, 16, 29)
+```
+
+#### prepare_input
+
+Prepare inputs for backbone and action head.
+
+```python
+def prepare_input(self, inputs: dict) -> Tuple[BatchFeature, BatchFeature]
+```
+
+<ParamField path="inputs" type="dict" required>
+  Raw input dictionary containing vision-language and action data
+</ParamField>
+
+<ResponseField name="return" type="Tuple[BatchFeature, BatchFeature]">
+  Tuple of (backbone_inputs, action_inputs) ready for model forward pass
+</ResponseField>
+
+### Properties
+
+<ResponseField name="device" type="torch.device">
+  Device where model parameters are located
+</ResponseField>
+
+<ResponseField name="dtype" type="torch.dtype">
+  Data type of model parameters
+</ResponseField>
+
+<ResponseField name="config" type="Gr00tN1d6Config">
+  Model configuration object
+</ResponseField>
+
+### Architecture
+
+The Gr00tN1d6 model consists of two main components:
+
+1. **Backbone** (`EagleBackbone`): Vision-language encoder that processes images and text
+   - Uses NVIDIA Eagle vision-language model
+   - Configurable layer selection and fine-tuning
+   - Optional flash attention for efficiency
+
+2. **Action Head** (`Gr00tN1d6ActionHead`): Flow matching diffusion model for action generation
+   - DiT or AlternateVLDiT transformer architecture
+   - Embodiment-conditioned MLPs for state/action encoding
+   - Beta distribution noise schedule for flow matching
+   - Supports multi-embodiment learning (up to 32 embodiments)
+
+**Data Flow:**
+
+```
+Images + Text → Backbone → Vision-Language Features
+                                    ↓
+State → State Encoder → State Features → DiT Transformer → Action Decoder → Actions
+                                    ↑
+                          Noisy Actions (during training)
+```
+
+### Supported embodiments
+
+The model supports multiple robot embodiments through embodiment-specific projectors:
+
+```python
+EMBODIMENT_TAG_TO_PROJECTOR_INDEX = {
+    # Pretrain embodiments
+    "robocasa_panda_omron": 13,
+    "gr1": 20,
+    "behavior_r1_pro": 24,
+    # Post-train embodiments
+    "unitree_g1": 8,
+    "libero_panda": 2,
+    "oxe_google": 0,
+    "oxe_widowx": 1,
+    "oxe_droid": 16,
+    "new_embodiment": 10,
+}
+```
+
+### Training configuration
+
+Control which parts of the model are trainable:
+
+```python
+config = Gr00tN1d6Config(
+    # Backbone fine-tuning
+    tune_llm=False,              # LLM layers
+    tune_visual=False,           # Vision encoder
+    tune_top_llm_layers=4,       # Number of top LLM layers to tune
+    
+    # Action head fine-tuning
+    tune_projector=True,         # State/action encoders and decoders
+    tune_diffusion_model=True,   # DiT transformer
+    tune_vlln=True,              # Vision-language layer norm
+    
+    # Regularization
+    state_dropout_prob=0.0,      # Dropout probability for state features
+    state_additive_noise_scale=0.0,  # Gaussian noise scale for states
+)
+```
+
+### Flow matching diffusion
+
+The action head uses flow matching for action generation:
+
+**Training:**
+1. Sample time `t ~ Beta(α=1.5, β=1.0)`
+2. Create noisy trajectory: `x_t = (1-t) * noise + t * action`
+3. Predict velocity: `v = action - noise`
+4. Minimize MSE: `L = ||v_pred - v||²`
+
+**Inference:**
+1. Start with random noise
+2. Iteratively denoise using Euler integration over `num_inference_timesteps` steps
+3. Return final denoised actions
+
+```python
+# Default: 4 inference steps for real-time control
+config = Gr00tN1d6Config(
+    num_inference_timesteps=4,
+    noise_beta_alpha=1.5,
+    noise_beta_beta=1.0,
+    noise_s=0.999,
+    num_timestep_buckets=1000
+)
+```
+
+## Model registration
+
+The model is automatically registered with HuggingFace Transformers:
+
+```python
+from transformers import AutoConfig, AutoModel
+
+# Registration happens in gr00t_n1d6.py
+AutoConfig.register("Gr00tN1d6", Gr00tN1d6Config)
+AutoModel.register(Gr00tN1d6Config, Gr00tN1d6)
+
+# Import to ensure registration
+import gr00t.model
+```
+
+## See also
+
+- [Model configuration](/api/model/config) - Configuration classes for the model
+- [Processor](/api/data/processor) - Data preprocessing and collation
+- [Policy](/api/inference/policy) - High-level policy interface for inference

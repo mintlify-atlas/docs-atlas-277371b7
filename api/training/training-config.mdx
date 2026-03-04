@@ -1,0 +1,292 @@
+---
+title: Training configuration
+description: Configuration classes for training GR00T models
+---
+
+The training configuration classes control all aspects of model training, including optimization, hardware setup, checkpointing, and experiment tracking.
+
+## TrainingConfig
+
+The `TrainingConfig` class defines parameters for training Vision-Language-Action models.
+
+### Output configuration
+
+<ParamField path="output_dir" type="str" default="./outputs">
+  Directory where model checkpoints, logs, and outputs are saved.
+</ParamField>
+
+<ParamField path="experiment_name" type="str | None" default="None">
+  Optional name for the experiment. Used for organizing outputs and tracking.
+</ParamField>
+
+### Basic training parameters
+
+<ParamField path="max_steps" type="int" default="30000">
+  Total number of training steps to run. This overrides `num_epochs`.
+</ParamField>
+
+<ParamField path="global_batch_size" type="int" default="1024">
+  Total effective batch size across all GPUs and accumulation steps.
+</ParamField>
+
+<ParamField path="batch_size" type="int | None" default="None">
+  Per-device batch size. If `None`, calculated from `global_batch_size`.
+</ParamField>
+
+<ParamField path="gradient_accumulation_steps" type="int" default="1">
+  Number of forward passes to accumulate before performing a backward/update step.
+</ParamField>
+
+### Optimization parameters
+
+<ParamField path="learning_rate" type="float" default="1e-4">
+  Initial learning rate for the optimizer.
+</ParamField>
+
+<ParamField path="lr_scheduler_type" type="str" default="cosine">
+  Learning rate scheduler type (e.g., `cosine`, `linear`, `constant`).
+</ParamField>
+
+<ParamField path="weight_decay" type="float" default="1e-5">
+  Weight decay coefficient for optimizer (L2 regularization).
+</ParamField>
+
+<ParamField path="warmup_ratio" type="float" default="0.05">
+  Proportion of total training steps used for learning rate warm-up.
+</ParamField>
+
+<ParamField path="warmup_steps" type="int" default="0">
+  Number of warm-up steps. Overrides `warmup_ratio` if set.
+</ParamField>
+
+<ParamField path="max_grad_norm" type="float" default="1.0">
+  Maximum gradient norm for gradient clipping.
+</ParamField>
+
+<ParamField path="optim" type="str" default="adamw_torch_fused">
+  Optimizer choice. Options include:
+  - `adamw_torch`: Standard AdamW from PyTorch
+  - `adamw_torch_fused`: Fused AdamW (faster)
+  - `paged_adamw_32bit`: Paged AdamW 32-bit (requires bitsandbytes)
+  - `paged_adamw_8bit`: Paged AdamW 8-bit (requires bitsandbytes)
+  - `adafactor`: Adafactor optimizer
+</ParamField>
+
+<ParamField path="start_from_checkpoint" type="str | None" default="None">
+  Path to a checkpoint to resume training from.
+</ParamField>
+
+### Mixed precision training
+
+<ParamField path="tf32" type="bool" default="True">
+  Enable TF32 mode for NVIDIA Ampere GPUs and later.
+</ParamField>
+
+<ParamField path="fp16" type="bool" default="False">
+  Enable FP16 mixed precision training.
+</ParamField>
+
+<ParamField path="bf16" type="bool" default="True">
+  Enable BF16 mixed precision training.
+</ParamField>
+
+<ParamField path="eval_bf16" type="bool" default="True">
+  Use BF16 for evaluation.
+</ParamField>
+
+### Logging and checkpointing
+
+<ParamField path="logging_steps" type="int" default="10">
+  Frequency (in training steps) at which to log training metrics.
+</ParamField>
+
+<ParamField path="save_steps" type="int" default="1000">
+  Frequency (in training steps) at which to save checkpoints.
+</ParamField>
+
+<ParamField path="save_total_limit" type="int" default="5">
+  Maximum number of checkpoints to keep before older ones are deleted.
+</ParamField>
+
+<ParamField path="save_vl_model" type="bool" default="False">
+  Control whether to save VL model and processor in callbacks.
+</ParamField>
+
+### Checkpoint uploading
+
+<ParamField path="upload_checkpoints" type="bool" default="False">
+  Enable automatic checkpoint uploading.
+</ParamField>
+
+<ParamField path="upload_every" type="int" default="1000">
+  Upload checkpoints every N steps.
+</ParamField>
+
+<ParamField path="upload_last_n_checkpoints" type="int" default="5">
+  Number of most recent checkpoints to keep uploaded.
+</ParamField>
+
+<ParamField path="max_concurrent_uploads" type="int" default="2">
+  Maximum number of concurrent checkpoint uploads.
+</ParamField>
+
+### Evaluation parameters
+
+<ParamField path="eval_strategy" type="str" default="no">
+  Evaluation strategy: `no`, `steps`, or `epoch`.
+</ParamField>
+
+<ParamField path="eval_steps" type="int" default="500">
+  Frequency (in steps) at which to run evaluation.
+</ParamField>
+
+<ParamField path="eval_set_split_ratio" type="float" default="0.1">
+  Ratio of data to use for evaluation split.
+</ParamField>
+
+<ParamField path="eval_batch_size" type="int" default="2">
+  Batch size for evaluation.
+</ParamField>
+
+<ParamField path="save_best_eval_metric_name" type="str" default="">
+  Name of the metric to use for saving best checkpoints.
+</ParamField>
+
+<ParamField path="save_best_eval_metric_greater_is_better" type="bool" default="True">
+  Whether higher values of the eval metric are better.
+</ParamField>
+
+### DeepSpeed configuration
+
+<ParamField path="deepspeed_stage" type="int" default="2">
+  ZeRO optimization stage (1, 2, or 3).
+</ParamField>
+
+<ParamField path="gradient_checkpointing" type="bool" default="False">
+  Enable gradient checkpointing to reduce memory usage.
+</ParamField>
+
+### Transformers loading parameters
+
+<ParamField path="transformers_trust_remote_code" type="bool" default="True">
+  Trust remote code when loading models from Hugging Face Hub.
+</ParamField>
+
+<ParamField path="transformers_local_files_only" type="bool" default="False">
+  Only use local files (no downloads from Hugging Face Hub).
+</ParamField>
+
+<ParamField path="transformers_cache_dir" type="str | None" default="None">
+  Directory for caching Hugging Face models.
+</ParamField>
+
+<ParamField path="transformers_access_token" type="str | None" default="None">
+  Access token for Hugging Face Hub (for private models).
+</ParamField>
+
+### DDP configuration
+
+<ParamField path="use_ddp" type="bool" default="False">
+  Use DistributedDataParallel instead of DeepSpeed.
+</ParamField>
+
+<ParamField path="ddp_bucket_cap_mb" type="int" default="100">
+  DDP bucket capacity in MB for gradient communication.
+</ParamField>
+
+### Hardware configuration
+
+<ParamField path="num_gpus" type="int" default="1">
+  Number of GPUs to use for training.
+</ParamField>
+
+<ParamField path="dataloader_num_workers" type="int" default="2">
+  Number of parallel worker processes for data loading.
+</ParamField>
+
+### Data handling
+
+<ParamField path="remove_unused_columns" type="bool" default="False">
+  Whether to remove unused columns from the dataset.
+</ParamField>
+
+### Experiment tracking
+
+<ParamField path="use_wandb" type="bool" default="False">
+  Enable Weights & Biases (wandb) logging.
+</ParamField>
+
+<ParamField path="wandb_project" type="str" default="finetune-gr00t-n1d6">
+  Wandb project name for tracking experiments.
+</ParamField>
+
+### Performance profiling
+
+<ParamField path="enable_profiling" type="bool" default="False">
+  Enable PyTorch profiler for performance analysis.
+</ParamField>
+
+### Fault tolerance
+
+<ParamField path="max_retries" type="int" default="3">
+  Maximum number of retries in training for fault tolerance.
+</ParamField>
+
+### Testing
+
+<ParamField path="assert_loss_less_than" type="float | None" default="None">
+  For testing: assert that loss is less than this value.
+</ParamField>
+
+### Reinforcement learning
+
+<ParamField path="add_rl_callback" type="bool" default="False">
+  Add reinforcement learning callback during training.
+</ParamField>
+
+### Open-loop evaluation
+
+<ParamField path="enable_open_loop_eval" type="bool" default="False">
+  Enable open-loop evaluation on saved checkpoints.
+</ParamField>
+
+<ParamField path="open_loop_eval_traj_ids" type="list[int]" default="[0]">
+  List of trajectory IDs to evaluate.
+</ParamField>
+
+<ParamField path="open_loop_eval_steps_per_traj" type="int" default="100">
+  Number of steps to evaluate per trajectory.
+</ParamField>
+
+<ParamField path="open_loop_eval_plot_indices" type="list[int] | None" default="None">
+  List of action indices to plot. If `None`, plots all indices.
+</ParamField>
+
+## FinetuneConfig
+
+The `FinetuneConfig` class is a simplified configuration specifically designed for single-node fine-tuning. See [launch_finetune.py](/api/training/launch-finetune) for detailed parameter descriptions.
+
+### Key differences from TrainingConfig
+
+- Focused on single-node training scenarios
+- Includes embodiment-specific parameters
+- Provides granular control over which model components to tune
+- Includes data augmentation parameters
+- Simplified parameter set compared to full `TrainingConfig`
+
+## Usage example
+
+```python
+from gr00t.configs.training.training_config import TrainingConfig
+
+config = TrainingConfig(
+    output_dir="./my_experiment",
+    experiment_name="robot_v1",
+    max_steps=50000,
+    global_batch_size=512,
+    learning_rate=5e-5,
+    num_gpus=4,
+    use_wandb=True,
+    wandb_project="my-gr00t-project"
+)
+```

@@ -1,0 +1,180 @@
+---
+title: Closed-loop evaluation
+description: Run policy rollouts in simulation environments to measure task success
+---
+
+The closed-loop evaluation script (`gr00t/eval/rollout_policy.py`) executes policies in simulation environments and measures task completion success rates.
+
+## Usage
+
+```bash
+python gr00t/eval/rollout_policy.py \
+  --env-name gr1_unified/PnPCanToDrawerClose_GR1ArmsAndWaistFourierHands_Env \
+  --model-path checkpoints/checkpoint-5000 \
+  --n-episodes 50 \
+  --n-envs 8 \
+  --n-action-steps 8 \
+  --max-episode-steps 504
+```
+
+## Parameters
+
+<ParamField path="env-name" type="str" required>
+  Name of the gymnasium environment to evaluate. Must be registered in one of:
+  - RoboCasa environments (prefix: `robocasa_panda_omron/`, `gr1_unified/`)
+  - SimplerEnv environments (prefix: `simpler_env_google/`, `simpler_env_widowx/`)
+  - LIBERO environments (prefix: `libero_sim/`)
+  - BEHAVIOR environments (prefix: `sim_behavior_r1_pro/`)
+  - GR00T LocoManip environments (prefix: `gr00tlocomanip_g1_sim/`)
+</ParamField>
+
+<ParamField path="model-path" type="str" default="">
+  Path to the model checkpoint directory. Required if not using `policy-client-host`.
+  
+  Example: `checkpoints/checkpoint-5000`
+</ParamField>
+
+<ParamField path="policy-client-host" type="str" default="">
+  Host address of the policy server. Use this with `policy-client-port` instead of `model-path` to connect to a remote policy server.
+</ParamField>
+
+<ParamField path="policy-client-port" type="int" default="None">
+  Port number of the policy server. Required when using `policy-client-host`.
+</ParamField>
+
+<ParamField path="n-episodes" type="int" default="50">
+  Number of episodes to run for evaluation.
+</ParamField>
+
+<ParamField path="n-envs" type="int" default="8">
+  Number of parallel environments to run simultaneously. Automatically uses `AsyncVectorEnv` for `n-envs > 1`.
+</ParamField>
+
+<ParamField path="n-action-steps" type="int" default="8">
+  Number of action steps to execute from each policy prediction. This is the execution horizon.
+</ParamField>
+
+<ParamField path="max-episode-steps" type="int" default="504">
+  Maximum number of steps per episode before truncation.
+</ParamField>
+
+## Outputs
+
+The script outputs:
+
+- **Success rate**: Percentage of episodes that completed the task successfully
+- **Episode info**: Additional metrics like task progress, episode lengths, and environment-specific scores
+- **Videos**: Saved to `/tmp/sim_eval_videos_{model_name}_ac{n_action_steps}_{uuid}/` (except for BEHAVIOR environments)
+
+### Example output
+
+```
+Running collecting 50 episodes for gr1_unified/PnPCanToDrawerClose with 8 vec envs
+Episodes: 100%|██████████| 50/50 [12:34<00:00,  1.51s/it]
+Collecting 50 episodes took 754.2 seconds
+results: ('gr1_unified/PnPCanToDrawerClose', [True, True, False, ...], {...})
+success rate: 0.76
+Video saved to: /tmp/sim_eval_videos_checkpoint-5000_ac8_a1b2c3d4/
+```
+
+## Supported environments
+
+### RoboCasa (GR1 and Panda)
+
+```bash
+python gr00t/eval/rollout_policy.py \
+  --env-name gr1_unified/PnPCanToDrawerClose_GR1ArmsAndWaistFourierHands_Env \
+  --model-path checkpoints/gr1_model
+```
+
+### SimplerEnv (Google Robot and WidowX)
+
+```bash
+python gr00t/eval/rollout_policy.py \
+  --env-name simpler_env_google/google_robot_pick_coke_can \
+  --model-path checkpoints/google_robot_model \
+  --n-action-steps 16
+```
+
+### LIBERO (Panda manipulation)
+
+```bash
+python gr00t/eval/rollout_policy.py \
+  --env-name libero_sim/LIVING_ROOM_SCENE2_put_both_the_alphabet_soup_and_the_tomato_sauce_in_the_basket \
+  --model-path checkpoints/libero_model
+```
+
+### BEHAVIOR (R1 Pro humanoid)
+
+```bash
+python gr00t/eval/rollout_policy.py \
+  --env-name sim_behavior_r1_pro/picking_up_trash \
+  --model-path checkpoints/behavior_model \
+  --n-envs 4 \
+  --max-episode-steps 1440
+```
+
+### GR00T LocoManipulation (G1)
+
+```bash
+python gr00t/eval/rollout_policy.py \
+  --env-name gr00tlocomanip_g1_sim/LMPnPAppleToPlateDC_G1_gear_wbc \
+  --model-path checkpoints/g1_model
+```
+
+## Using policy server
+
+For distributed evaluation, start a policy server and connect to it:
+
+```bash
+# Terminal 1: Start the policy server
+python gr00t/eval/run_gr00t_server.py \
+  --model-path checkpoints/checkpoint-5000 \
+  --port 5555
+
+# Terminal 2: Run evaluation
+python gr00t/eval/rollout_policy.py \
+  --env-name gr1_unified/PnPCanToDrawerClose_GR1ArmsAndWaistFourierHands_Env \
+  --policy-client-host 127.0.0.1 \
+  --policy-client-port 5555 \
+  --n-episodes 50 \
+  --n-envs 8
+```
+
+## Environment wrappers
+
+The evaluation script automatically applies:
+
+### MultiStepWrapper
+
+Executes multiple action steps from each policy prediction:
+- `video_delta_indices`: Controls temporal stacking of video observations
+- `state_delta_indices`: Controls temporal stacking of state observations
+- `n_action_steps`: Number of actions to execute per inference
+- `max_episode_steps`: Maximum steps before truncation
+- `terminate_on_success`: Whether to end episode immediately on task success
+
+### VideoRecordingWrapper (optional)
+
+Records videos of episodes:
+- Videos saved to `/tmp/sim_eval_videos_{model_name}_ac{n_action_steps}_{uuid}/`
+- Configurable FPS, codec, and quality settings
+- Automatically disabled for BEHAVIOR environments
+
+## Embodiment detection
+
+The script automatically determines the embodiment tag from the environment name prefix:
+
+| Environment Prefix | Embodiment Tag |
+| --- | --- |
+| `robocasa_panda_omron/` | `ROBOCASA_PANDA_OMRON` |
+| `gr1_unified/`, `gr1/` | `GR1` |
+| `gr00tlocomanip_g1_sim/` | `UNITREE_G1` |
+| `simpler_env_google/` | `OXE_GOOGLE` |
+| `simpler_env_widowx/` | `OXE_WIDOWX` |
+| `libero_sim/` | `LIBERO_PANDA` |
+| `sim_behavior_r1_pro/` | `BEHAVIOR_R1_PRO` |
+
+<Note>
+  For BEHAVIOR environments, video recording is automatically disabled to avoid conflicts with the simulator's internal rendering.
+</Note>

@@ -1,0 +1,170 @@
+---
+title: Embodiment tags
+description: Explanation of embodiment tags and supported robots
+---
+
+Embodiment tags are used to identify the robot embodiment in your data. They enable GR00T to apply embodiment-specific configurations and handle cross-embodiment training.
+
+## Naming convention
+
+Embodiment tags follow the pattern:
+
+```
+<dataset>_<robot_name>
+```
+
+When using multiple datasets for the same robot (e.g., sim GR1 and real GR1), you can drop the dataset name and use only the robot name.
+
+## Pretrain embodiment tags
+
+These embodiments were included in the base model pretraining:
+
+<ParamField path="ROBOCASA_PANDA_OMRON" type="string" default="robocasa_panda_omron">
+  The RoboCasa Panda robot with omron mobile base.
+</ParamField>
+
+<ParamField path="GR1" type="string" default="gr1">
+  The Fourier GR1 robot.
+</ParamField>
+
+## Pre-registered posttrain embodiment tags
+
+These embodiments have ready-to-use configurations for fine-tuning:
+
+<ParamField path="UNITREE_G1" type="string" default="unitree_g1">
+  The Unitree G1 robot.
+</ParamField>
+
+<ParamField path="LIBERO_PANDA" type="string" default="libero_panda">
+  The Libero panda robot.
+</ParamField>
+
+<ParamField path="OXE_GOOGLE" type="string" default="oxe_google">
+  The Open-X-Embodiment Google robot.
+</ParamField>
+
+<ParamField path="OXE_WIDOWX" type="string" default="oxe_widowx">
+  The Open-X-Embodiment WidowX robot.
+</ParamField>
+
+<ParamField path="OXE_DROID" type="string" default="oxe_droid">
+  The Open-X-Embodiment DROID robot with relative joint position actions.
+</ParamField>
+
+<ParamField path="BEHAVIOR_R1_PRO" type="string" default="behavior_r1_pro">
+  The Behavior R1 Pro robot.
+</ParamField>
+
+## Custom embodiments
+
+<ParamField path="NEW_EMBODIMENT" type="string" default="new_embodiment">
+  Any new embodiment not included in the pre-registered tags.
+</ParamField>
+
+<Info>
+Use `NEW_EMBODIMENT` when fine-tuning on your own robot. You'll need to provide a custom modality configuration.
+</Info>
+
+## Using embodiment tags
+
+Embodiment tags are specified in your dataset and during training/inference:
+
+### In your dataset
+
+Specify the embodiment tag when creating `VLAStepData`:
+
+```python
+from gr00t.data.embodiment_tags import EmbodimentTag
+from gr00t.data.types import VLAStepData
+
+step_data = VLAStepData(
+    images={"front": [image_array]},
+    states={"joint_pos": state_array},
+    actions={"joint_pos": action_array},
+    text="pick up the cube",
+    embodiment=EmbodimentTag.GR1,  # Specify your robot
+    is_demonstration=False,
+)
+```
+
+### During training
+
+Specify the embodiment tag in your training command:
+
+```bash
+uv run python gr00t/experiment/launch_finetune.py \
+    --base-model-path nvidia/GR00T-N1.6-3B \
+    --dataset-path <DATASET_PATH> \
+    --embodiment-tag UNITREE_G1 \
+    --num-gpus 1
+```
+
+### During inference
+
+Specify the embodiment tag when loading the policy:
+
+```bash
+uv run python gr00t/eval/run_gr00t_server.py \
+    --embodiment-tag GR1 \
+    --model-path nvidia/GR00T-N1.6-3B
+```
+
+## Implementation details
+
+Embodiment tags are implemented as an enum in `gr00t/data/embodiment_tags.py:14-61`:
+
+```python
+from enum import Enum
+
+class EmbodimentTag(Enum):
+    ##### Pretrain embodiment tags #####
+    ROBOCASA_PANDA_OMRON = "robocasa_panda_omron"
+    """
+    The RoboCasa Panda robot with omron mobile base.
+    """
+
+    GR1 = "gr1"
+    """
+    The Fourier GR1 robot.
+    """
+
+    ##### Pre-registered posttrain embodiment tags #####
+    UNITREE_G1 = "unitree_g1"
+    """
+    The Unitree G1 robot.
+    """
+
+    # ... additional embodiments
+
+    # New embodiment during post-training
+    NEW_EMBODIMENT = "new_embodiment"
+    """
+    Any new embodiment.
+    """
+```
+
+## Cross-embodiment training
+
+GR00T's cross-embodiment architecture allows the model to learn from multiple robot types simultaneously. The embodiment tag is used to:
+
+1. Apply embodiment-specific normalization statistics
+2. Load embodiment-specific modality configurations
+3. Enable the model to distinguish between different robot morphologies
+
+<Tip>
+When fine-tuning on a new embodiment, the model leverages knowledge from all pretrained embodiments, enabling faster adaptation with less data.
+</Tip>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Modality configs" icon="sliders" href="/concepts/modality-configs">
+    Configure data processing for your embodiment
+  </Card>
+  <Card title="Data format" icon="database" href="/concepts/data-format">
+    Prepare your data in the correct format
+  </Card>
+  <Card title="Fine-tuning guide" icon="graduation-cap" href="/guides/finetuning">
+    Fine-tune on your custom embodiment
+  </Card>
+</CardGroup>

@@ -1,0 +1,325 @@
+---
+title: LeRobot v2 data format
+description: GR00T-flavored LeRobot v2 dataset format and structure requirements
+---
+
+GR00T uses a flavor of the [LeRobot dataset V2 format](https://github.com/huggingface/lerobot?tab=readme-ov-file#the-lerobotdataset-format) called **GR00T LeRobot**. While maintaining full compatibility with upstream LeRobot v2, GR00T adds additional structure and metadata for more detailed specification and language annotations.
+
+<Info>
+**TLDR**: Add a `meta/modality.json` file to your LeRobot v2 dataset and follow the schema below.
+</Info>
+
+## Directory structure
+
+A GR00T LeRobot dataset follows this structure:
+
+```
+.
+├─meta
+│ ├─episodes.jsonl
+│ ├─modality.json       # GR00T LeRobot specific
+│ ├─info.json
+│ └─tasks.jsonl
+├─videos
+│ └─chunk-000
+│   └─observation.images.ego_view
+│     ├─episode_000000.mp4
+│     └─episode_000001.mp4
+└─data
+  └─chunk-000
+    ├─episode_000000.parquet
+    └─episode_000001.parquet
+```
+
+## Data components
+
+### Video observations (videos/chunk-*)
+
+Video files are stored as MP4 files following the naming convention:
+
+<ParamField path="videos/chunk-*/observation.images.<video_name>/episode_*.mp4" type="video">
+  Video observations for each episode.
+  
+  **Requirements:**
+  - Must be stored as MP4 files
+  - Named using format: `observation.images.<video_name>`
+  - Episode numbering: `episode_00000X.mp4` where X is the episode number
+</ParamField>
+
+### Data files (data/chunk-*)
+
+Parquet files containing state, action, and annotation data:
+
+<ParamField path="data/chunk-*/episode_*.parquet" type="parquet">
+  Episode data in columnar format.
+  
+  **Required columns:**
+  - `observation.state` - Concatenated 1D array of all state modalities
+  - `action` - Concatenated 1D array of all action modalities
+  - `timestamp` - Float timestamp of the observation
+  - `episode_index` - Episode number
+  - `index` - Global observation index across all episodes
+  - `next.reward` - Reward of the next observation
+  - `next.done` - Whether the episode is done
+  
+  **Optional columns:**
+  - `annotation.<source>.<type>.<name>` - Annotation indices referencing `tasks.jsonl`
+  - `task_index` - Task index (legacy, use annotation columns instead)
+</ParamField>
+
+#### Example parquet file
+
+From the `cube_to_bowl` dataset:
+
+```json
+{
+    "observation.state": [-0.01147082911843003, ..., 0],
+    "action": [-0.010770668025204974, ..., 0],
+    "timestamp": 0.04999995231628418,
+    "annotation.human.action.task_description": 0,
+    "task_index": 0,
+    "annotation.human.validity": 1,
+    "episode_index": 0,
+    "index": 0,
+    "next.reward": 0,
+    "next.done": false
+}
+```
+
+### Metadata files (meta/)
+
+<AccordionGroup>
+  <Accordion title="meta/tasks.jsonl">
+    Contains task descriptions referenced by annotation indices in parquet files.
+
+    **Format:**
+    ```json
+    {"task_index": 0, "task": "pick the squash from the counter and place it in the plate"}
+    {"task_index": 1, "task": "valid"}
+    ```
+
+    The `annotation.human.action.task_description` column in the parquet file references the `task_index` to get the actual task description.
+  </Accordion>
+
+  <Accordion title="meta/episodes.jsonl">
+    Contains episode metadata including length and associated tasks.
+
+    **Format:**
+    ```json
+    {"episode_index": 0, "tasks": [...], "length": 416}
+    {"episode_index": 1, "tasks": [...], "length": 470}
+    ```
+  </Accordion>
+
+  <Accordion title="meta/info.json">
+    Contains general dataset information and metadata.
+  </Accordion>
+
+  <Accordion title="meta/modality.json (GR00T specific)">
+    **Required** metadata file for GR00T that provides detailed field-level metadata.
+    See the schema section below for details.
+  </Accordion>
+</AccordionGroup>
+
+## GR00T-specific: meta/modality.json
+
+The `meta/modality.json` file is **required** for GR00T and provides detailed metadata about state and action modalities.
+
+### Purpose
+
+This file enables:
+
+- **Separate data storage and interpretation**: State and action are stored as concatenated float32 arrays, with metadata to interpret them as distinct fields
+- **Fine-grained splitting**: Divides arrays into semantically meaningful fields
+- **Clear mapping**: Explicit mapping of data dimensions
+- **Sophisticated transformations**: Field-specific normalization and rotation transformations during training
+
+### Schema
+
+```json
+{
+    "state": {
+        "<state_key>": {
+            "start": <int>,  // Starting index in the state array
+            "end": <int>     // Ending index in the state array
+        }
+    },
+    "action": {
+        "<action_key>": {
+            "start": <int>,  // Starting index in the action array
+            "end": <int>     // Ending index in the action array
+        }
+    },
+    "video": {
+        "<new_key>": {
+            "original_key": "<original_video_key>"
+        }
+    },
+    "annotation": {
+        "<annotation_key>": {}  // Empty dict for consistency
+    }
+}
+```
+
+<Note>
+All indices are zero-based and follow Python's array slicing convention (`[start:end]`).
+</Note>
+
+### Example modality.json
+
+```json
+{
+    "state": {
+        "single_arm": {"start": 0, "end": 5},
+        "gripper": {"start": 5, "end": 6}
+    },
+    "action": {
+        "single_arm": {"start": 0, "end": 5},
+        "gripper": {"start": 5, "end": 6}
+    },
+    "video": {
+        "front": {"original_key": "observation.images.front"},
+        "wrist": {"original_key": "observation.images.wrist"}
+    },
+    "annotation": {
+        "human.task_description": {
+            "original_key": "task_index"
+        }
+    }
+}
+```
+
+## GR00T extensions to standard LeRobot
+
+GR00T LeRobot extends the standard LeRobot format with:
+
+<ResponseField name="Computed statistics" type="automatic">
+  `meta/stats.json` and `meta/relative_stats.json` are automatically computed for each dataset and stored in the `meta` folder.
+</ResponseField>
+
+<ResponseField name="Required proprioceptive states" type="required">
+  Proprioceptive states must always be included in the `observation.state` keys.
+</ResponseField>
+
+<ResponseField name="Multi-channel annotations" type="supported">
+  Support for multiple annotation channels (e.g., coarse-grained, fine-tuned) via the `annotation.<source>.<type>` key pattern.
+</ResponseField>
+
+<ResponseField name="Additional metadata" type="required">
+  The `meta/modality.json` file is required and not present in standard LeRobot v2.
+</ResponseField>
+
+## Multiple annotation support
+
+GR00T supports multiple annotation channels within a single parquet file. Users can add extra columns following the pattern:
+
+```
+annotation.<source>.<type>.<name>
+```
+
+### How it works
+
+1. **Language descriptions** are stored in `meta/tasks.jsonl` with a `task_index`
+2. **Parquet files** store only the corresponding index in the annotation column
+3. **The data loader** uses the index to retrieve the actual text from `tasks.jsonl`
+
+<Info>
+This is the same pattern as LeRobot v2's `task_index` column, but more flexible with dedicated annotation columns.
+</Info>
+
+### Example
+
+**meta/tasks.jsonl:**
+```json
+{"task_index": 0, "task": "pick the squash and place it in the plate"}
+{"task_index": 1, "task": "valid"}
+```
+
+**Parquet file:**
+```json
+{
+    "annotation.human.action.task_description": 0,
+    "annotation.human.validity": 1,
+    ...
+}
+```
+
+The loader will resolve index `0` to "pick the squash and place it in the plate" and index `1` to "valid".
+
+## Converting existing data
+
+### From LeRobot v3.0
+
+If you have a dataset in the LeRobot v3.0 format, use the conversion script:
+
+```bash
+python scripts/lerobot_conversion/convert_v3_to_v2.py
+```
+
+### From other formats
+
+Convert your data to LeRobot v2 format following the structure requirements above, then add the `meta/modality.json` file.
+
+## VLAStepData structure
+
+When working with GR00T's data processing pipeline, data is represented using the `VLAStepData` class from `gr00t/data/types.py:36-58`:
+
+```python
+@dataclass
+class VLAStepData:
+    """
+    Represents a single step of VLA (Vision-Language-Action) data.
+
+    This is the core data structure returned by datasets, containing raw observation
+    and action data that will be processed by the SequenceVLAProcessor.
+    """
+
+    # Core data
+    images: dict[str, list[np.ndarray]]  # view_name -> list[np.ndarray]
+    states: dict[str, np.ndarray]  # state_name -> np.ndarray (dim,)
+    actions: dict[str, np.ndarray]  # action_name -> np.ndarray (horizon, dim)
+    text: str | None = None  # Optional task description
+    embodiment: EmbodimentTag = EmbodimentTag.NEW_EMBODIMENT
+    is_demonstration: bool = False  # If True, no loss is computed
+
+    # Flexible metadata
+    metadata: dict[str, Any] = field(default_factory=dict)
+```
+
+<ParamField path="images" type="dict[str, list[np.ndarray]]" required>
+  Dictionary mapping view names to lists of image arrays (for temporal stacking).
+</ParamField>
+
+<ParamField path="states" type="dict[str, np.ndarray]" required>
+  Dictionary mapping state names to state arrays. Can be single step `(dim,)` or trajectory `(horizon, dim)`.
+</ParamField>
+
+<ParamField path="actions" type="dict[str, np.ndarray]" required>
+  Dictionary mapping action names to action arrays with shape `(horizon, dim)` for action chunks.
+</ParamField>
+
+<ParamField path="text" type="str | None">
+  Optional task description or instruction for language conditioning.
+</ParamField>
+
+<ParamField path="embodiment" type="EmbodimentTag">
+  Embodiment tag for cross-embodiment training. Defaults to `NEW_EMBODIMENT`.
+</ParamField>
+
+<ParamField path="is_demonstration" type="bool">
+  Whether the step is a demonstration. If `True`, no loss is computed for this step.
+</ParamField>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Modality configs" icon="sliders" href="/concepts/modality-configs">
+    Configure how to load and process your data
+  </Card>
+  <Card title="Data preparation guide" icon="book" href="/guides/data-preparation">
+    Step-by-step guide to prepare your dataset
+  </Card>
+  <Card title="Embodiment tags" icon="robot" href="/concepts/embodiment-tags">
+    Learn about supported robots
+  </Card>
+</CardGroup>
