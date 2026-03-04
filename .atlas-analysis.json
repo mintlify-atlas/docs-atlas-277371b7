@@ -1,0 +1,152 @@
+{
+  "projectType": "ai-ml",
+  "projectName": "Isaac GR00T",
+  "projectDescription": "An open vision-language-action foundation model for generalist humanoid robot control and manipulation.",
+  "theme": "aspen",
+  "primaryColor": "#76B900",
+  "lightColor": "#90D624",
+  "darkColor": "#5A9100",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "introduction",
+              "whats-new",
+              "architecture"
+            ]
+          },
+          {
+            "group": "Getting Started",
+            "pages": [
+              "getting-started/installation",
+              "getting-started/quickstart",
+              "getting-started/hardware-requirements"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/model-overview",
+              "concepts/embodiment-tags",
+              "concepts/modality-configs",
+              "concepts/data-format"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/data-preparation",
+              "guides/inference",
+              "guides/finetuning",
+              "guides/evaluation",
+              "guides/policy-api",
+              "guides/custom-embodiment"
+            ]
+          },
+          {
+            "group": "Benchmarks & Examples",
+            "pages": [
+              "examples/overview",
+              "examples/libero",
+              "examples/simplerenv",
+              "examples/behavior",
+              "examples/robocasa",
+              "examples/g1-locomanipulation",
+              "examples/droid",
+              "examples/pointnav",
+              "examples/so100"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/server-client",
+              "deployment/optimization",
+              "deployment/tensorrt",
+              "deployment/docker"
+            ]
+          },
+          {
+            "group": "Resources",
+            "pages": [
+              "resources/model-checkpoints",
+              "resources/troubleshooting",
+              "resources/faq",
+              "resources/contributing"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Policy",
+            "pages": [
+              "api/policy/gr00t-policy",
+              "api/policy/policy-wrapper",
+              "api/policy/server-client"
+            ]
+          },
+          {
+            "group": "Data",
+            "pages": [
+              "api/data/embodiment-tags",
+              "api/data/dataset",
+              "api/data/processor",
+              "api/data/types"
+            ]
+          },
+          {
+            "group": "Model",
+            "pages": [
+              "api/model/gr00t-model",
+              "api/model/config"
+            ]
+          },
+          {
+            "group": "Training",
+            "pages": [
+              "api/training/launch-finetune",
+              "api/training/training-config"
+            ]
+          },
+          {
+            "group": "Evaluation",
+            "pages": [
+              "api/eval/open-loop",
+              "api/eval/closed-loop",
+              "api/eval/server"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Pre-trained 3B parameter vision-language-action foundation model",
+    "Cross-embodiment generalization across humanoid and manipulation robots",
+    "Fine-tuning on custom robot datasets with minimal data",
+    "Support for multiple robot embodiments (GR1, G1, Panda, WidowX, etc.)",
+    "Server-client architecture for remote inference",
+    "Open-loop and closed-loop evaluation frameworks",
+    "Integration with simulation benchmarks (LIBERO, SimplerEnv, BEHAVIOR)",
+    "LeRobot v2 compatible data format"
+  ],
+  "publicApiSurface": [
+    "Gr00tPolicy",
+    "Gr00tSimPolicyWrapper",
+    "PolicyClient",
+    "BaseProcessor",
+    "EmbodimentTag",
+    "ModalityConfig",
+    "launch_finetune.py",
+    "run_gr00t_server.py",
+    "open_loop_eval.py",
+    "standalone_inference_script.py"
+  ]
+}
